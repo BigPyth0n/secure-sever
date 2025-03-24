@@ -104,7 +104,7 @@ docker run -d \
     -v portainer_data:/data \
     --restart unless-stopped \
     portainer/portainer-ce:latest || { echo "Failed to run Portainer"; exit 1; }
-echo "⚠️ Please access Portainer at http://$SERVER_IP:$PORTAINER_PORT within 5 minutes to set the initial password!"
+echo "⚠️ Portainer installed! You will need to set the initial password at http://$SERVER_IP:$PORTAINER_PORT after the script finishes."
 
 # 🛠️ 5. نصب پایتون 3.11 و pip
 echo "🐍 Installing Python 3.11.2 and pip..."
@@ -302,6 +302,11 @@ else
     send_telegram "❌ مشکلی در سرور وجود دارد: SSH یا Docker فعال نیست - $(hostname) در $(date)"
     exit 1
 fi
+
+# ری‌استارت Portainer برای باز کردن پنجره تنظیم رمز
+echo "🔄 Restarting Portainer to reset timeout..."
+sudo docker restart portainer
+echo "✅ Portainer restarted! Please access http://$SERVER_IP:$PORTAINER_PORT within 5 minutes to set the initial password."
 
 echo "✅ Secure setup completed successfully at $(date)!"
 exit 0
