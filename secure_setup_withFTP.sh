@@ -106,7 +106,7 @@ docker run -d \
     portainer/portainer-ce:latest || { echo "Failed to run Portainer"; exit 1; }
 echo "⚠️ Portainer installed! You will need to set the initial password at http://$SERVER_IP:$PORTAINER_PORT after the script finishes."
 
-# 🛠️ 5. نصب پایتون 3.11 و pip
+# 🛠️ 5. نصب پایتون 3.11 و وابستگی‌ها
 echo "🐍 Installing Python 3.11.2 and dependencies..."
 add-apt-repository ppa:deadsnakes/ppa -y
 apt update
