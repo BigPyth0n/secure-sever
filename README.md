@@ -45,3 +45,13 @@
 1. توی سرور، دستور زیر رو بزن:
    ```bash
    curl -s https://raw.githubusercontent.com/BigPyth0n/secure-sever/blob/main/secure_setup.sh | sudo bash
+
+
+### روش 2: به صورت دانلود روی سرور و اجرا کردن
+   ```bash
+   wget https://raw.githubusercontent.com/YourUsername/server-setup-script/main/secure_setup.sh
+   ```bash
+   chmod +x secure_setup.sh
+   ```bash
+   sudo ./secure_setup.sh
+   
