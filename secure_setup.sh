@@ -104,6 +104,7 @@ docker run -d \
     -v portainer_data:/data \
     --restart unless-stopped \
     portainer/portainer-ce:latest || { echo "Failed to run Portainer"; exit 1; }
+echo "⚠️ Please access Portainer at http://$SERVER_IP:$PORTAINER_PORT within 5 minutes to set the initial password!"
 
 # 🛠️ 5. نصب پایتون 3.11 و pip
 echo "🐍 Installing Python 3.11.2 and pip..."
@@ -185,25 +186,30 @@ systemctl start crowdsec-firewall-bouncer || { echo "Failed to start CrowdSec bo
 
 echo "🛡️ Setting up CrowdSec dashboard (interactive)..."
 cscli dashboard setup --listen 0.0.0.0
-
-# گرفتن رمز داشبورد CrowdSec
-CROWDSEC_PASSWORD=$(grep "password" /etc/crowdsec/local_api_credentials.yaml | awk '{print $2}' | tr -d '"')
+# صبر کردن تا نصب کامل بشه
+sleep 30
+# گرفتن رمز داشبورد CrowdSec از فایل درست
+CROWDSEC_PASSWORD=$(grep "password" /etc/crowdsec/metabase/metabase.yaml | awk '{print $2}' | tr -d '"')
 
 # 🛠️ 11. نصب ابزارهای اضافی و Netdata
 echo "📦 Installing additional tools and Netdata..."
 apt install -y wget curl net-tools iperf3 htop glances tmux rsync vim nano unzip zip build-essential git lftp clamav clamav-daemon rkhunter lynis auditd tcpdump nmap
 # نصب Netdata با روش پایدارتر
 apt install -y netdata || { echo "Failed to install Netdata package"; exit 1; }
-# اگه فایل تنظیمات وجود داره، تغییرش می‌دیم
-if [ -f /etc/netdata/netdata.conf ]; then
-    sed -i "s/bind to = 127.0.0.1:19999/bind to = 0.0.0.0:$NETDATA_PORT/" /etc/netdata/netdata.conf
-else
-    echo "⚠️ Netdata config file not found, creating default..."
-    mkdir -p /etc/netdata
-    echo "[web]\nbind to = 0.0.0.0:$NETDATA_PORT" > /etc/netdata/netdata.conf
-fi
+# بازنویسی فایل تنظیمات Netdata
+cat <<EOL > /etc/netdata/netdata.conf
+[global]
+    run as user = netdata
+    web files owner = root
+    web files group = root
+[web]
+    bind to = 0.0.0.0:$NETDATA_PORT
+EOL
 systemctl enable netdata
 systemctl restart netdata || { echo "Failed to restart Netdata"; exit 1; }
+# غیرفعال کردن postfix برای جلوگیری از خطا
+systemctl stop postfix
+systemctl disable postfix
 
 # 🛠️ 12. تنظیمات امنیتی سیستمی
 echo "🔧 Applying system security settings..."
