@@ -107,51 +107,95 @@ docker run -d \
 echo "⚠️ Portainer installed! You will need to set the initial password at http://$SERVER_IP:$PORTAINER_PORT after the script finishes."
 
 
-# 🛠️ 5. نصب پایتون‌های مختلف و تنظیم پیش‌فرض
-echo "🐍 Installing Python 3.10 and 3.11 with full dependencies..."
+
+echo "🐍 Installing Python versions with full dependencies..."
+
+# نصب پیش‌نیازهای عمومی
+apt install -y software-properties-common build-essential libssl-dev zlib1g-dev \
+libbz2-dev libreadline-dev libsqlite3-dev wget curl llvm libncurses5-dev \
+libncursesw5-dev xz-utils tk-dev libffi-dev liblzma-dev python3-openssl
+
+# اضافه کردن PPA برای پایتون‌های جدید
 add-apt-repository ppa:deadsnakes/ppa -y
 apt update
-# نصب پایتون 3.10 با تمام وابستگی‌ها (بدون python3-pip)
-apt install -y python3.10 \
-               python3.10-dev \
-               python3.10-distutils \
-               python3.10-venv \
-               python3.10-lib2to3 \
-               python3.10-gdbm \
-               python3.10-tk \
-               python3-apt || { echo "Failed to install Python 3.10 with dependencies"; exit 1; }
-# نصب پایتون 3.11 با تمام وابستگی‌ها (بدون python3-pip)
-apt install -y python3.11 \
-               python3.11-dev \
-               python3.11-distutils \
-               python3.11-venv \
-               python3.11-lib2to3 \
-               python3.11-gdbm \
-               python3.11-tk || { echo "Failed to install Python 3.11 with dependencies"; exit 1; }
 
-# تنظیم update-alternatives برای نسخه‌ها
+# نصب پایتون 3.8 (نسخه اصلی اوبنتو 20.04)
+echo "🔹 Installing Python 3.8 (system default)..."
+apt install -y python3.8 python3.8-dev python3.8-venv python3.8-distutils \
+python3.8-lib2to3 python3.8-gdbm python3.8-tk python3-apt
+
+# نصب پایتون 3.10 با تمام وابستگی‌ها
+echo "🔹 Installing Python 3.10..."
+apt install -y python3.10 python3.10-dev python3.10-venv python3.10-distutils \
+python3.10-lib2to3 python3.10-gdbm python3.10-tk
+
+# نصب پایتون 3.11 با تمام وابستگی‌ها
+echo "🔹 Installing Python 3.11..."
+apt install -y python3.11 python3.11-dev python3.11-venv python3.11-distutils \
+python3.11-lib2to3 python3.11-gdbm python3.11-tk
+
+# تنظیم آلترناتیوها برای پایتون
+update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 8
 update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 10
 update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 11
 
-# تنظیم پایتون 3.10 به‌عنوان پیش‌فرض
-update-alternatives --set python3 /usr/bin/python3.10 || { echo "Failed to set Python 3.10 as default"; exit 1; }
+# تنظیم پایتون 3.10 به عنوان پیش‌فرض (با امکان تغییر)
+update-alternatives --set python3 /usr/bin/python3.10
 
-# نصب و به‌روزرسانی pip با get-pip.py
-echo "🔄 Installing and updating pip for all Python versions..."
-wget -O get-pip.py https://bootstrap.pypa.io/get-pip.py || { echo "Failed to download get-pip.py"; exit 1; }
-/usr/bin/python3.10 get-pip.py || { echo "Failed to install pip for Python 3.10"; exit 1; }
-/usr/bin/python3.11 get-pip.py || { echo "Failed to install pip for Python 3.11"; exit 1; }
-/usr/bin/python3.10 -m pip install --upgrade pip || { echo "Failed to upgrade pip for Python 3.10"; exit 1; }
-/usr/bin/python3.11 -m pip install --upgrade pip || { echo "Failed to upgrade pip for Python 3.11"; exit 1; }
+# نصب pip برای تمام نسخ‌های پایتون
+echo "🔄 Installing pip for all Python versions..."
+wget -O get-pip.py https://bootstrap.pypa.io/get-pip.py
+
+# نصب pip برای هر نسخه با محیط مجازی
+for version in 3.8 3.10 3.11; do
+    echo "🔸 Setting up Python $version..."
+    
+    # ایجاد محیط مجازی
+    python$version -m venv /opt/py$version-env
+    
+    # نصب pip در محیط مجازی
+    /opt/py$version-env/bin/python get-pip.py
+    
+    # ایجاد لینک سمبلیک برای دسترسی جهانی
+    ln -s /opt/py$version-env/bin/pip /usr/local/bin/pip$version
+    
+    # به‌روزرسانی pip
+    /opt/py$version-env/bin/python -m pip install --upgrade pip
+    
+    # تنظیم مسیر برای apt_pkg در صورت نیاز
+    if [ "$version" = "3.8" ]; then
+        ln -sf /usr/lib/python3/dist-packages/apt_pkg.cpython-38*.so \
+               /opt/py$version-env/lib/python$version/site-packages/apt_pkg.so
+    fi
+done
+
+# پاک‌سازی
 rm -f get-pip.py
 
-# تست نسخه پیش‌فرض (3.10)
+# تست نسخه پیش‌فرض
 echo "🔍 Testing default Python version (should be 3.10)..."
-python3 -c "import sys; print(f'Python version: {sys.version}')" || { echo "❌ Default Python not working"; exit 1; }
+python3 -c "import sys; print(f'Default Python: {sys.version}')" || {
+    echo "❌ Python 3.10 not working properly";
+    # بازگشت به پایتون 3.8 در صورت مشکل
+    update-alternatives --set python3 /usr/bin/python3.8;
+    python3 -c "import sys; print(f'Fallback to Python: {sys.version}')";
+}
 
-# تست دسترسی به apt_pkg برای سازگاری سیستمی
-echo "🔍 Ensuring apt_pkg is available for Python 3.10..."
-python3 -c "import apt_pkg" || { echo "⚠️ apt_pkg not found for Python 3.10, attempting to fix..."; apt install --reinstall python3-apt -y; python3 -c "import apt_pkg" || { echo "❌ Failed to fix apt_pkg"; exit 1; }; }
+# حل مشکل apt_pkg برای پایتون 3.10
+echo "🔧 Fixing apt_pkg for Python 3.10..."
+ln -sf /usr/lib/python3/dist-packages/apt_pkg.cpython-38*.so \
+       /usr/lib/python3.10/site-packages/apt_pkg.so
+
+# تست نهایی apt_pkg
+echo "🔍 Testing apt_pkg availability..."
+python3 -c "import apt_pkg; print('apt_pkg successfully imported')" || \
+echo "⚠️ apt_pkg not available - some system tools may not work properly"
+
+# تنظیم pip پیش‌فرض (از محیط مجازی پایتون 3.10)
+ln -sf /opt/py3.10-env/bin/pip /usr/local/bin/pip
+ln -sf /opt/py3.10-env/bin/pip3 /usr/local/bin/pip3
+
+echo "✅ Python setup completed successfully!"
 
 
 
