@@ -139,7 +139,7 @@ docker run -d \
 # 🛠️ 8. نصب Code-Server
 echo "💻 Installing Code-Server..."
 curl -fsSL https://code-server.dev/install.sh | sh
-systemctl enable --now code-server@"$NEW_USER"
+sudo systemctl enable --now code-server@"$NEW_USER"
 mkdir -p /home/"$NEW_USER"/.config/code-server
 cat <<EOL > /home/"$NEW_USER"/.config/code-server/config.yaml
 bind-addr: 0.0.0.0:$CODE_SERVER_PORT
@@ -148,7 +148,8 @@ password: $CODE_SERVER_PASSWORD
 cert: false
 EOL
 chown -R "$NEW_USER":"$NEW_USER" /home/"$NEW_USER"/.config
-systemctl restart code-server@"$NEW_USER" || { echo "Failed to restart Code-Server"; exit 1; }
+sudo setcap 'cap_net_bind_service=+ep' /usr/lib/code-server/lib/node || { echo "Failed to set capabilities for Code-Server"; exit 1; }
+sudo systemctl restart code-server@"$NEW_USER" || { echo "Failed to restart Code-Server"; exit 1; }
 
 # 🛠️ 9. تنظیم فایروال UFW
 echo "🔥 Configuring UFW..."
