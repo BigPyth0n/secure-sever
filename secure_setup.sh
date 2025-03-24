@@ -107,8 +107,9 @@ docker run -d \
 echo "⚠️ Portainer installed! You will need to set the initial password at http://$SERVER_IP:$PORTAINER_PORT after the script finishes."
 
 
+
 # 🛠️ 5. نصب پایتون‌های مختلف و تنظیم پیش‌فرض
-echo "🐍 Installing Python 3.10, 3.11, 3.13 with full dependencies..."
+echo "🐍 Installing Python 3.10 and 3.11 with full dependencies..."
 add-apt-repository ppa:deadsnakes/ppa -y
 apt update
 # نصب پایتون 3.10 با تمام وابستگی‌ها
@@ -129,19 +130,10 @@ apt install -y python3.11 \
                python3.11-lib2to3 \
                python3.11-gdbm \
                python3.11-tk || { echo "Failed to install Python 3.11 with dependencies"; exit 1; }
-# نصب پایتون 3.13 با تمام وابستگی‌ها
-apt install -y python3.13 \
-               python3.13-dev \
-               python3.13-distutils \
-               python3.13-venv \
-               python3.13-lib2to3 \
-               python3.13-gdbm \
-               python3.13-tk || { echo "Failed to install Python 3.13 with dependencies"; exit 1; }
 
-# تنظیم update-alternatives برای همه نسخه‌ها
+# تنظیم update-alternatives برای نسخه‌ها
 update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 10
 update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 11
-update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 13
 
 # تنظیم پایتون 3.10 به‌عنوان پیش‌فرض
 update-alternatives --set python3 /usr/bin/python3.10 || { echo "Failed to set Python 3.10 as default"; exit 1; }
@@ -150,7 +142,6 @@ update-alternatives --set python3 /usr/bin/python3.10 || { echo "Failed to set P
 echo "🔄 Updating pip for all Python versions..."
 /usr/bin/python3.10 -m pip install --upgrade pip || { echo "Failed to upgrade pip for Python 3.10"; exit 1; }
 /usr/bin/python3.11 -m pip install --upgrade pip || { echo "Failed to upgrade pip for Python 3.11"; exit 1; }
-/usr/bin/python3.13 -m pip install --upgrade pip || { echo "Failed to upgrade pip for Python 3.13"; exit 1; }
 
 # تست نسخه پیش‌فرض (3.10)
 echo "🔍 Testing default Python version (should be 3.10)..."
