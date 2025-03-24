@@ -53,6 +53,10 @@
 ```
 wget https://github.com/BigPyth0n/secure-sever/blob/main/secure_setup.sh
 ```
+```
+wget https://raw.githubusercontent.com/BigPyth0n/secure-sever/refs/heads/main/secure_setup.sh
+```
+
 ### دادن مجوز اجرایی
 ```
 chmod +x secure_setup.sh
@@ -63,3 +67,6 @@ sudo ./secure_setup.sh
 ```
 
    
+
+
+
