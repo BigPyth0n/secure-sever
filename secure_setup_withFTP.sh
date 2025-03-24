@@ -107,10 +107,10 @@ docker run -d \
 echo "⚠️ Portainer installed! You will need to set the initial password at http://$SERVER_IP:$PORTAINER_PORT after the script finishes."
 
 # 🛠️ 5. نصب پایتون 3.11 و pip
-echo "🐍 Installing Python 3.11.2 and pip..."
+echo "🐍 Installing Python 3.11.2 and dependencies..."
 add-apt-repository ppa:deadsnakes/ppa -y
 apt update
-apt install -y python3.11 python3.11-distutils python3-pip
+apt install -y python3.11 python3.11-distutils python3-pip python3-apt
 update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 2
 update-alternatives --set python3 /usr/bin/python3.11
 python3 -m pip install --upgrade pip
