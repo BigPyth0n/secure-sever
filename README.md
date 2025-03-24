@@ -40,7 +40,7 @@
 
 ---
 
-## نصب و اجرا
+## نصب و اجرا اسکریپت بدون FTP
 
 
 ### روش دستی: به صورت دانلود روی سرور و اجرا کردن
@@ -60,6 +60,25 @@ chmod +x secure_setup.sh
 sudo ./secure_setup.sh
 ```
 
+## نصب و اجرا اسکریپت با FTP
+
+
+### روش دستی: به صورت دانلود روی سرور و اجرا کردن
+ دانلود روی سرور اعطای مجوز و نصب دستی
+
+
+```
+wget https://raw.githubusercontent.com/BigPyth0n/secure-sever/refs/heads/main/secure_setup_withFTP.sh
+```
+
+### دادن مجوز اجرایی
+```
+chmod +x secure_setup_withFTP.sh
+```
+### و اجرای اسکریپت
+```
+sudo ./secure_setup_withFTP.sh
+```
    
 
 
