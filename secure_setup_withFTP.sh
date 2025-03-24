@@ -397,33 +397,83 @@ chown root:root /etc/vsftpd.conf /etc/vsftpd.userlist /etc/vsftpd.chroot_list
 systemctl enable vsftpd
 systemctl start vsftpd || { echo "Failed to start vsftpd"; exit 1; }
 
-# 🛠️ 16. نصب TA-Lib از سورس با تمام وابستگی‌ها
-echo "📈 Installing TA-Lib from source with full dependencies..."
-# نصب پیش‌نیازها
-apt install -y build-essential libncurses5-dev libncursesw5-dev wget || { echo "Failed to install TA-Lib prerequisites"; exit 1; }
+
+
+echo "📈 Installing TA-Lib from source with full dependencies (automatic setup)..."
+
+# نصب پیش‌نیازهای ضروری
+apt install -y build-essential libncurses5-dev libncursesw5-dev wget make > /dev/null 2>&1 || {
+    echo "❌ Failed to install TA-Lib prerequisites"
+    exit 1
+}
+
 # دانلود و استخراج TA-Lib
-wget -O ta-lib-0.4.0-src.tar.gz http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz || { echo "Failed to download TA-Lib"; exit 1; }
-tar zxvf ta-lib-0.4.0-src.tar.gz || { echo "Failed to extract TA-Lib"; exit 1; }
+echo "🔹 Downloading and extracting TA-Lib..."
+wget -O ta-lib-0.4.0-src.tar.gz http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz > /dev/null 2>&1 || {
+    echo "❌ Failed to download TA-Lib"
+    exit 1
+}
+tar zxvf ta-lib-0.4.0-src.tar.gz > /dev/null 2>&1 || {
+    echo "❌ Failed to extract TA-Lib"
+    exit 1
+}
+
+# کامپایل و نصب
+echo "🔹 Compiling and installing TA-Lib..."
 cd ta-lib
-# تنظیم و کامپایل
-./configure --prefix=/usr || { echo "Failed to configure TA-Lib"; exit 1; }
-make || { echo "Failed to compile TA-Lib"; exit 1; }
-make install || { echo "Failed to install TA-Lib"; exit 1; }
-# برگشت به دایرکتوری اصلی
+./configure --prefix=/usr > /dev/null 2>&1 || {
+    echo "❌ Failed to configure TA-Lib"
+    exit 1
+}
+make > /dev/null 2>&1 || {
+    echo "❌ Failed to compile TA-Lib"
+    exit 1
+}
+make install > /dev/null 2>&1 || {
+    echo "❌ Failed to install TA-Lib"
+    exit 1
+}
+
+# تنظیم مسیر کتابخانه‌ها به صورت خودکار
+echo "/usr/lib" > /etc/ld.so.conf.d/ta-lib.conf
+ldconfig > /dev/null 2>&1
+
+# بازگشت به دایرکتوری اصلی
 cd ..
-# نصب نسخه پایتون TA-Lib برای پایتون پیش‌فرض (3.10)
-/usr/bin/python3.10 -m pip install TA-Lib || { echo "Failed to install TA-Lib Python package for 3.10"; exit 1; }
-# نصب اختیاری برای نسخه 3.11
-/usr/bin/python3.11 -m pip install TA-Lib || echo "Warning: Failed to install TA-Lib for 3.11, continuing..."
-# تست نصب TA-Lib
-echo "🔍 Testing TA-Lib installation for Python 3.10..."
-TALIB_VERSION=$(python3 -c "import talib; print(talib.__version__)" 2>/dev/null) || { echo "❌ TA-Lib not working with Python 3.10"; exit 1; }
-echo "✅ TA-Lib version $TALIB_VERSION installed successfully!"
-# ارسال گزارش نصب TA-Lib به تلگرام
-TALIB_REPORT="📈 نصب TA-Lib\nسرور: $SERVER_NAME\nنسخه: $TALIB_VERSION\nپایتون پیش‌فرض: 3.10\nزمان: $(date)"
-send_telegram "$TALIB_REPORT"
+
+# نصب pip برای پایتون 3.10 در صورت عدم وجود
+if ! /usr/bin/python3.10 -m pip --version > /dev/null 2>&1; then
+    echo "🔹 Installing pip for Python 3.10..."
+    wget -O get-pip.py https://bootstrap.pypa.io/get-pip.py > /dev/null 2>&1
+    /usr/bin/python3.10 get-pip.py > /dev/null 2>&1 || {
+        echo "❌ Failed to install pip for Python 3.10"
+        exit 1
+    }
+    rm -f get-pip.py
+fi
+
+# نصب بسته پایتونی TA-Lib با تنظیمات خودکار
+echo "🔹 Installing Python TA-Lib package..."
+export LD_LIBRARY_PATH=/usr/lib:$LD_LIBRARY_PATH
+/usr/bin/python3.10 -m pip install --global-option=build_ext --global-option="-L/usr/lib" TA-Lib > /dev/null 2>&1 || {
+    echo "❌ Failed to install TA-Lib Python package"
+    exit 1
+}
+
+# تست نصب
+if /usr/bin/python3.10 -c "import talib; print('✅ TA-Lib installed successfully! Version:', talib.__version__)" > /dev/null 2>&1; then
+    echo "✅ TA-Lib installation completed successfully!"
+else
+    echo "❌ TA-Lib installation verification failed"
+    exit 1
+fi
+
 # پاکسازی
-rm -rf ta-lib ta-lib-0.4.0-src.tar.gz
+rm -rf ta-lib ta-lib-0.4.0-src.tar.gz > /dev/null 2>&1
+
+
+
+
 
 # 🛠️ 17. تست نهایی SSH و Docker
 echo "🔍 Final check for SSH and Docker..."
