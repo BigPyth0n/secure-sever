@@ -51,7 +51,7 @@
  دانلود روی سرور اعطای مجوز و نصب دستی
 
 ```
-wget https://raw.githubusercontent.com/YourUsername/server-setup-script/main/secure_setup.sh
+wget https://github.com/BigPyth0n/secure-sever/blob/main/secure_setup.sh
 ```
 ### دادن مجوز اجرایی
 ```
