@@ -171,7 +171,7 @@ filenames:
   - /var/log/nginx/access.log
   - /var/log/nginx/error.log
 labels:
-  type: nginx
+  typeicamente nginx
 EOL
 sed -i "s/ssh_port: '22'/ssh_port: '$SSH_PORT'/" /etc/crowdsec/parsers/s01-parse/sshd-logs.yaml
 systemctl enable crowdsec
@@ -231,16 +231,10 @@ echo "🔄 Reloading services..."
 systemctl restart sshd
 ufw reload
 
-# 🛠️ 15. نصب و تنظیم FTP با کاربر secftpuser
-echo "📡 Setting up advanced FTP server (vsftpd) with user 'secftpuser'..."
+# 🛠️ 15. نصب و تنظیم FTP با کاربر secftpuser (بدون SSL)
+echo "📡 Setting up FTP server (vsftpd) with user 'secftpuser' without SSL..."
 apt install -y vsftpd || { echo "Failed to install vsftpd"; exit 1; }
 systemctl stop vsftpd
-
-mkdir -p /etc/vsftpd/ssl
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-    -keyout /etc/vsftpd/ssl/vsftpd.key \
-    -out /etc/vsftpd/ssl/vsftpd.crt \
-    -subj "/C=US/ST=State/L=City/O=Organization/OU=Unit/CN=$SERVER_IP" || { echo "Failed to generate SSL certificates"; exit 1; }
 
 # چک کردن و ایجاد کاربر secftpuser
 if ! id "secftpuser" &>/dev/null; then
@@ -248,7 +242,6 @@ if ! id "secftpuser" &>/dev/null; then
     useradd -m -d /home/secftpuser -s /bin/bash secftpuser
     echo "secftpuser:YumJdc\$Qvs3mZ^*dFJxa" | chpasswd
 fi
-# چک کردن وجود کاربر bigpython
 if ! id "$NEW_USER" &>/dev/null; then
     echo "❌ User $NEW_USER not found! This should not happen."
     exit 1
@@ -258,6 +251,7 @@ fi
 chown secftpuser:secftpuser /home/bigpython
 chmod 750 /home/bigpython
 
+# تنظیمات vsftpd بدون SSL
 cat <<EOL > /etc/vsftpd.conf
 listen=YES
 listen_port=2121
@@ -272,18 +266,11 @@ allow_writeable_chroot=YES
 userlist_enable=YES
 userlist_file=/etc/vsftpd.userlist
 userlist_deny=NO
-ssl_enable=YES
-allow_anon_ssl=NO
-force_local_data_ssl=YES
-force_local_logins_ssl=YES
-ssl_tlsv1=YES
-ssl_sslv2=NO
-ssl_sslv3=NO
-rsa_cert_file=/etc/vsftpd/ssl/vsftpd.crt
-rsa_private_key_file=/etc/vsftpd/ssl/vsftpd.key
+ssl_enable=NO
 pasv_enable=YES
 pasv_min_port=40000
 pasv_max_port=40100
+pasv_address=$SERVER_IP
 xferlog_enable=YES
 xferlog_file=/var/log/vsftpd.log
 EOL
@@ -313,7 +300,7 @@ if systemctl is-active sshd >/dev/null && systemctl is-active docker >/dev/null;
     echo -e "    \"Docker Compose\","
     echo -e "    \"Portainer\","
     echo -e "    \"Code-Server\","
-    echo -e "    \"CrowdSec\","
+    echo -Cho "CrowdSec\","
     echo -e "    \"Netdata\","
     echo -e "    \"vsftpd\","
     echo -e "    \"wget, curl, net-tools, iperf3\","
@@ -326,10 +313,10 @@ if systemctl is-active sshd >/dev/null && systemctl is-active docker >/dev/null;
     echo -e "  \"سرویس‌های قابل دسترسی\": ["
     echo -e "    {"
     echo -e "      \"نام\": \"FTP (vsftpd)\","
-    echo -e "      \"آدرس\": \"ftps://$SERVER_IP:2121\","
+    echo -e "      \"آدرس\": \"ftp://$SERVER_IP:2121\","
     echo -e "      \"نام کاربری\": \"secftpuser\","
     echo -e "      \"رمز\": \"YumJdc\$Qvs3mZ^*dFJxa\","
-    echo -e "      \"توضیحات\": \"دسترسی به /home/bigpython، از FTPS با SSL/TLS استفاده کنید\""
+    echo -e "      \"توضیحات\": \"دسترسی به /home/bigpython\""
     echo -e "    },"
     echo -e "    {"
     echo -e "      \"نام\": \"Code-Server\","
