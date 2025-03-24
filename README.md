@@ -50,9 +50,7 @@
 ### روش 2: به صورت دانلود روی سرور و اجرا کردن
  دانلود روی سرور اعطای مجوز و نصب دستی
 
-```
-wget https://github.com/BigPyth0n/secure-sever/blob/main/secure_setup.sh
-```
+
 ```
 wget https://raw.githubusercontent.com/BigPyth0n/secure-sever/refs/heads/main/secure_setup.sh
 ```
