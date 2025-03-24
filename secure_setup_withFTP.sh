@@ -399,77 +399,111 @@ systemctl start vsftpd || { echo "Failed to start vsftpd"; exit 1; }
 
 
 
-echo "📈 Installing TA-Lib from source with full dependencies (automatic setup)..."
 
-# نصب پیش‌نیازهای ضروری
-apt install -y build-essential libncurses5-dev libncursesw5-dev wget make > /dev/null 2>&1 || {
-    echo "❌ Failed to install TA-Lib prerequisites"
+
+# 🛠️ 16. نصب کتابخانه talib
+echo "📈 Installing TA-Lib from source (with progress display)..."
+echo "⏳ This may take 3-5 minutes depending on server performance..."
+
+# تابع نمایش پیشرفت
+show_progress() {
+    while true; do
+        echo -n "."
+        sleep 5
+    done
+}
+
+# شروع نمایش پیشرفت
+show_progress &
+PROGRESS_PID=$!
+
+# نصب پیش‌نیازها
+apt install -y build-essential libncurses5-dev libncursesw5-dev wget make > /tmp/ta-lib-install.log 2>&1 || {
+    kill $PROGRESS_PID
+    echo -e "\n❌ Failed to install prerequisites"
+    cat /tmp/ta-lib-install.log | tail -n 10
     exit 1
 }
 
-# دانلود و استخراج TA-Lib
-echo "🔹 Downloading and extracting TA-Lib..."
-wget -O ta-lib-0.4.0-src.tar.gz http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz > /dev/null 2>&1 || {
-    echo "❌ Failed to download TA-Lib"
+# دانلود و استخراج
+wget -O ta-lib-0.4.0-src.tar.gz http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz >> /tmp/ta-lib-install.log 2>&1 || {
+    kill $PROGRESS_PID
+    echo -e "\n❌ Failed to download TA-Lib"
     exit 1
 }
-tar zxvf ta-lib-0.4.0-src.tar.gz > /dev/null 2>&1 || {
-    echo "❌ Failed to extract TA-Lib"
+tar zxvf ta-lib-0.4.0-src.tar.gz >> /tmp/ta-lib-install.log 2>&1 || {
+    kill $PROGRESS_PID
+    echo -e "\n❌ Failed to extract TA-Lib"
     exit 1
 }
 
 # کامپایل و نصب
-echo "🔹 Compiling and installing TA-Lib..."
 cd ta-lib
-./configure --prefix=/usr > /dev/null 2>&1 || {
-    echo "❌ Failed to configure TA-Lib"
-    exit 1
-}
-make > /dev/null 2>&1 || {
-    echo "❌ Failed to compile TA-Lib"
-    exit 1
-}
-make install > /dev/null 2>&1 || {
-    echo "❌ Failed to install TA-Lib"
+./configure --prefix=/usr >> /tmp/ta-lib-install.log 2>&1 || {
+    kill $PROGRESS_PID
+    echo -e "\n❌ Configuration failed"
+    cat /tmp/ta-lib-install.log | tail -n 20
     exit 1
 }
 
-# تنظیم مسیر کتابخانه‌ها به صورت خودکار
+echo -e "\n🔹 Compiling TA-Lib (this is the longest part)..."
+make >> /tmp/ta-lib-install.log 2>&1 || {
+    kill $PROGRESS_PID
+    echo -e "\n❌ Compilation failed"
+    cat /tmp/ta-lib-install.log | grep -i error | tail -n 20
+    exit 1
+}
+
+echo -e "\n🔹 Installing TA-Lib libraries..."
+make install >> /tmp/ta-lib-install.log 2>&1 || {
+    kill $PROGRESS_PID
+    echo -e "\n❌ Installation failed"
+    cat /tmp/ta-lib-install.log | grep -i error | tail -n 20
+    exit 1
+}
+
+# تنظیم مسیر کتابخانه
 echo "/usr/lib" > /etc/ld.so.conf.d/ta-lib.conf
-ldconfig > /dev/null 2>&1
+ldconfig >> /tmp/ta-lib-install.log 2>&1
 
-# بازگشت به دایرکتوری اصلی
-cd ..
-
-# نصب pip برای پایتون 3.10 در صورت عدم وجود
-if ! /usr/bin/python3.10 -m pip --version > /dev/null 2>&1; then
-    echo "🔹 Installing pip for Python 3.10..."
-    wget -O get-pip.py https://bootstrap.pypa.io/get-pip.py > /dev/null 2>&1
-    /usr/bin/python3.10 get-pip.py > /dev/null 2>&1 || {
-        echo "❌ Failed to install pip for Python 3.10"
+# نصب pip اگر وجود ندارد
+if ! /usr/bin/python3.10 -m pip --version >> /tmp/ta-lib-install.log 2>&1; then
+    echo -e "\n🔹 Installing pip for Python 3.10..."
+    wget -O get-pip.py https://bootstrap.pypa.io/get-pip.py >> /tmp/ta-lib-install.log 2>&1
+    /usr/bin/python3.10 get-pip.py >> /tmp/ta-lib-install.log 2>&1 || {
+        kill $PROGRESS_PID
+        echo -e "\n❌ Failed to install pip"
         exit 1
     }
     rm -f get-pip.py
 fi
 
-# نصب بسته پایتونی TA-Lib با تنظیمات خودکار
-echo "🔹 Installing Python TA-Lib package..."
+# نصب بسته پایتونی
+echo -e "\n🔹 Installing Python TA-Lib package..."
 export LD_LIBRARY_PATH=/usr/lib:$LD_LIBRARY_PATH
-/usr/bin/python3.10 -m pip install --global-option=build_ext --global-option="-L/usr/lib" TA-Lib > /dev/null 2>&1 || {
-    echo "❌ Failed to install TA-Lib Python package"
+/usr/bin/python3.10 -m pip install --global-option=build_ext --global-option="-L/usr/lib" TA-Lib >> /tmp/ta-lib-install.log 2>&1 || {
+    kill $PROGRESS_PID
+    echo -e "\n❌ Python package installation failed"
+    cat /tmp/ta-lib-install.log | grep -i error | tail -n 20
     exit 1
 }
 
-# تست نصب
-if /usr/bin/python3.10 -c "import talib; print('✅ TA-Lib installed successfully! Version:', talib.__version__)" > /dev/null 2>&1; then
-    echo "✅ TA-Lib installation completed successfully!"
+# پایان نمایش پیشرفت
+kill $PROGRESS_PID
+
+# تست نهایی
+if /usr/bin/python3.10 -c "import talib; print('\n✅ TA-Lib installed successfully! Version:', talib.__version__)"; then
+    echo -e "\n🎉 TA-Lib installation completed!"
+    rm -rf ta-lib ta-lib-0.4.0-src.tar.gz /tmp/ta-lib-install.log
 else
-    echo "❌ TA-Lib installation verification failed"
+    echo -e "\n❌ TA-Lib verification failed"
+    cat /tmp/ta-lib-install.log | grep -i error | tail -n 20
     exit 1
 fi
 
-# پاکسازی
-rm -rf ta-lib ta-lib-0.4.0-src.tar.gz > /dev/null 2>&1
+
+
+
 
 
 
