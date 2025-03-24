@@ -50,8 +50,10 @@
 ### روش 2: به صورت دانلود روی سرور و اجرا کردن
    ```bash
    wget https://raw.githubusercontent.com/YourUsername/server-setup-script/main/secure_setup.sh
+
    ```bash
    chmod +x secure_setup.sh
+
    ```bash
    sudo ./secure_setup.sh
    
