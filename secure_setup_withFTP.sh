@@ -65,7 +65,6 @@ if ! id "$NEW_USER" &>/dev/null; then
     chmod 440 /etc/sudoers.d/"$NEW_USER"
 fi
 
-# چک کردن وجود دایرکتوری خانگی
 if [[ ! -d "/home/$NEW_USER" ]]; then
     echo "❌ Home directory /home/$NEW_USER does not exist. Creating it..."
     mkdir -p "/home/$NEW_USER" || { echo "❌ Failed to create /home/$NEW_USER"; exit 1; }
@@ -92,13 +91,11 @@ apt install -y docker-ce || { echo "❌ Failed to install Docker"; exit 1; }
 systemctl enable --now docker || { echo "❌ Failed to enable/start Docker"; exit 1; }
 usermod -aG docker "$NEW_USER" || { echo "❌ Failed to add $NEW_USER to docker group"; exit 1; }
 
-# نصب Docker Compose
 echo "🐳 Installing Docker Compose..."
 curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || { echo "❌ Failed to download Docker Compose"; exit 1; }
 chmod +x /usr/local/bin/docker-compose || { echo "❌ Failed to make Docker Compose executable"; exit 1; }
 docker-compose --version || { echo "❌ Docker Compose installation failed"; exit 1; }
 
-# نصب Portainer
 echo "🐳 Installing Portainer..."
 docker volume create portainer_data || { echo "❌ Failed to create Portainer volume"; exit 1; }
 docker run -d \
@@ -219,7 +216,7 @@ systemctl start crowdsec || { echo "❌ Failed to start CrowdSec"; exit 1; }
 
 echo "🛡️ Installing CrowdSec firewall bouncer..."
 apt install -y crowdsec-firewall-bouncer-iptables || { echo "❌ Failed to install CrowdSec bouncer"; exit 1; }
-cscli machines add --auto || { echo "❌ Failed to add CrowdSec machine"; exit 1; }
+cscli machines add --auto --force || { echo "❌ Failed to add CrowdSec machine"; exit 1; }
 systemctl enable crowdsec-firewall-bouncer || { echo "❌ Failed to enable CrowdSec bouncer"; exit 1; }
 systemctl start crowdsec-firewall-bouncer || { echo "❌ Failed to start CrowdSec bouncer"; exit 1; }
 
@@ -368,7 +365,6 @@ else
     exit 1
 fi
 
-# ری‌استارت Portainer
 echo "🔄 Restarting Portainer to reset timeout..."
 docker restart portainer || { echo "❌ Failed to restart Portainer"; exit 1; }
 echo "✅ Portainer restarted! Access http://$SERVER_IP:$PORTAINER_PORT within 5 minutes to set the initial password."
