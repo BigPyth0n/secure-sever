@@ -16,10 +16,10 @@ PORTS_TO_OPEN=("1010" "1020" "1030" "1040" "2060" "3050" "2020" "4040" "3060" "2
 LOG_FILE="/var/log/secure_setup.log"
 
 # 🛠️ گرفتن IP سرور (IPv4)
-SERVER_IP=$(curl -s -4 icanhazip.com)
+SERVER_IP=$(curl -s -4 icanhazip.com) || { echo "❌ Failed to get server IP"; exit 1; }
 
 # 🛠️ گرفتن محل سرور (تقریبی)
-SERVER_LOCATION=$(curl -s "http://ip-api.com/line/$SERVER_IP?fields=country,city" | tr '\n' ', ' | sed 's/, $//')
+SERVER_LOCATION=$(curl -s "http://ip-api.com/line/$SERVER_IP?fields=country,city" | tr '\n' ', ' | sed 's/, $//') || "Unknown"
 
 # 🛠️ گرفتن نام سرور
 SERVER_NAME=$(hostname)
@@ -36,7 +36,7 @@ send_telegram() {
     local message="$1"
     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
         -d "chat_id=$TELEGRAM_CHAT_ID" \
-        -d "text=$message" >/dev/null 2>&1
+        -d "text=$message" >/dev/null 2>&1 || echo "⚠️ Failed to send Telegram message"
 }
 
 # 🛠️ چک کردن دسترسی root
@@ -47,118 +47,101 @@ fi
 
 # 🛠️ 1. اضافه کردن رپوزیتوری‌ها
 echo "➕ Adding Ubuntu 20.04 repositories..."
-add-apt-repository main -y || { echo "Failed to add main repository"; exit 1; }
-add-apt-repository universe -y || { echo "Failed to add universe repository"; exit 1; }
-add-apt-repository restricted -y || { echo "Failed to add restricted repository"; exit 1; }
-add-apt-repository multiverse -y || { echo "Failed to add multiverse repository"; exit 1; }
+add-apt-repository main -y || { echo "❌ Failed to add main repository"; exit 1; }
+add-apt-repository universe -y || { echo "❌ Failed to add universe repository"; exit 1; }
+add-apt-repository restricted -y || { echo "❌ Failed to add restricted repository"; exit 1; }
+add-apt-repository multiverse -y || { echo "❌ Failed to add multiverse repository"; exit 1; }
 
 # 🛠️ 2. آپدیت و ارتقای سیستم
 echo "🔄 Updating and upgrading system..."
-apt update && apt upgrade -y || { echo "Failed to update/upgrade system"; exit 1; }
+apt update && apt upgrade -y || { echo "❌ Failed to update/upgrade system"; exit 1; }
 
 # 🛠️ 3. ایجاد کاربر جدید و تنظیم کلید عمومی از GitHub
 echo "👤 Creating secure user: $NEW_USER and setting up SSH key..."
 if ! id "$NEW_USER" &>/dev/null; then
-    adduser --disabled-password --gecos "" "$NEW_USER"
-    usermod -aG sudo "$NEW_USER"
-    echo "$NEW_USER ALL=(ALL) NOPASSWD: ALL" | tee /etc/sudoers.d/"$NEW_USER"
+    adduser --disabled-password --gecos "" "$NEW_USER" || { echo "❌ Failed to create user $NEW_USER"; exit 1; }
+    usermod -aG sudo "$NEW_USER" || { echo "❌ Failed to add $NEW_USER to sudo group"; exit 1; }
+    echo "$NEW_USER ALL=(ALL) NOPASSWD: ALL" | tee /etc/sudoers.d/"$NEW_USER" || { echo "❌ Failed to set sudoers for $NEW_USER"; exit 1; }
     chmod 440 /etc/sudoers.d/"$NEW_USER"
 fi
-mkdir -p /home/"$NEW_USER"/.ssh
-curl -s "$PUBLIC_KEY_URL" > /home/"$NEW_USER"/.ssh/authorized_keys
-chown -R "$NEW_USER":"$NEW_USER" /home/"$NEW_USER"/.ssh
-chmod 700 /home/"$NEW_USER"/.ssh
-chmod 600 /home/"$NEW_USER"/.ssh/authorized_keys
 
-# چک کردن کلید عمومی
-if [[ -s /home/"$NEW_USER"/.ssh/authorized_keys && $(stat -c %a /home/"$NEW_USER"/.ssh/authorized_keys) -eq 600 ]]; then
-    echo "✅ SSH public key successfully downloaded and permissions set."
-else
-    echo "❌ Failed to download or set permissions for SSH public key."
+# چک کردن وجود دایرکتوری خانگی
+if [[ ! -d "/home/$NEW_USER" ]]; then
+    echo "❌ Home directory /home/$NEW_USER does not exist. Creating it..."
+    mkdir -p "/home/$NEW_USER" || { echo "❌ Failed to create /home/$NEW_USER"; exit 1; }
+    chown "$NEW_USER":"$NEW_USER" "/home/$NEW_USER"
+fi
+
+mkdir -p "/home/$NEW_USER/.ssh" || { echo "❌ Failed to create .ssh directory"; exit 1; }
+curl -s -o "/home/$NEW_USER/.ssh/authorized_keys" "$PUBLIC_KEY_URL" || { echo "❌ Failed to download public key"; exit 1; }
+if [[ ! -s "/home/$NEW_USER/.ssh/authorized_keys" ]]; then
+    echo "❌ Public key file is empty or not downloaded correctly"
     exit 1
 fi
+chown -R "$NEW_USER":"$NEW_USER" "/home/$NEW_USER/.ssh" || { echo "❌ Failed to set ownership for .ssh"; exit 1; }
+chmod 700 "/home/$NEW_USER/.ssh" || { echo "❌ Failed to set permissions for .ssh"; exit 1; }
+chmod 600 "/home/$NEW_USER/.ssh/authorized_keys" || { echo "❌ Failed to set permissions for authorized_keys"; exit 1; }
 
 # 🛠️ 4. نصب ملزومات (Docker و ابزارهای پایه)
 echo "🐳 Installing Docker and prerequisites..."
-apt install -y apt-transport-https ca-certificates curl software-properties-common
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
-add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable"
-apt update
-apt install -y docker-ce
-systemctl enable --now docker || { echo "Failed to enable/start Docker"; exit 1; }
-usermod -aG docker "$NEW_USER" || { echo "Failed to add $NEW_USER to docker group"; exit 1; }
+apt install -y apt-transport-https ca-certificates curl software-properties-common || { echo "❌ Failed to install prerequisites"; exit 1; }
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add - || { echo "❌ Failed to add Docker GPG key"; exit 1; }
+add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable" || { echo "❌ Failed to add Docker repository"; exit 1; }
+apt update || { echo "❌ Failed to update apt after adding Docker repo"; exit 1; }
+apt install -y docker-ce || { echo "❌ Failed to install Docker"; exit 1; }
+systemctl enable --now docker || { echo "❌ Failed to enable/start Docker"; exit 1; }
+usermod -aG docker "$NEW_USER" || { echo "❌ Failed to add $NEW_USER to docker group"; exit 1; }
 
 # نصب Docker Compose
 echo "🐳 Installing Docker Compose..."
-curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-chmod +x /usr/local/bin/docker-compose
-docker-compose --version || { echo "Failed to install Docker Compose"; exit 1; }
+curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || { echo "❌ Failed to download Docker Compose"; exit 1; }
+chmod +x /usr/local/bin/docker-compose || { echo "❌ Failed to make Docker Compose executable"; exit 1; }
+docker-compose --version || { echo "❌ Docker Compose installation failed"; exit 1; }
 
 # نصب Portainer
 echo "🐳 Installing Portainer..."
-docker volume create portainer_data
+docker volume create portainer_data || { echo "❌ Failed to create Portainer volume"; exit 1; }
 docker run -d \
     --name portainer \
     -p $PORTAINER_PORT:9000 \
     -v /var/run/docker.sock:/var/run/docker.sock \
     -v portainer_data:/data \
     --restart unless-stopped \
-    portainer/portainer-ce:latest || { echo "Failed to run Portainer"; exit 1; }
-echo "⚠️ Portainer installed! You will need to set the initial password at http://$SERVER_IP:$PORTAINER_PORT after the script finishes."
+    portainer/portainer-ce:latest || { echo "❌ Failed to run Portainer"; exit 1; }
+echo "⚠️ Portainer installed! Set the initial password at http://$SERVER_IP:$PORTAINER_PORT after the script finishes."
 
 # 🛠️ 5. نصب نسخه‌های مختلف پایتون
 echo "🐍 Installing Python versions..."
-
-# نصب پیش‌نیازهای عمومی
 apt install -y software-properties-common build-essential libssl-dev zlib1g-dev \
 libbz2-dev libreadline-dev libsqlite3-dev wget curl llvm libncurses5-dev \
-libncursesw5-dev xz-utils tk-dev libffi-dev liblzma-dev python3-openssl
+libncursesw5-dev xz-utils tk-dev libffi-dev liblzma-dev python3-openssl || { echo "❌ Failed to install Python prerequisites"; exit 1; }
 
-# اضافه کردن PPA برای پایتون‌های جدید
-add-apt-repository ppa:deadsnakes/ppa -y
-apt update
+add-apt-repository ppa:deadsnakes/ppa -y || { echo "❌ Failed to add deadsnakes PPA"; exit 1; }
+apt update || { echo "❌ Failed to update apt after adding PPA"; exit 1; }
 
-# نصب پایتون 3.8 (نسخه اصلی اوبنتو 20.04) با python3-apt
 echo "🔹 Installing Python 3.8 (system default) with apt_pkg..."
-apt install -y python3.8 python3.8-dev python3.8-venv python3.8-distutils \
-python3.8-lib2to3 python3.8-gdbm python3.8-tk python3-apt
+apt install -y python3.8 python3.8-dev python3.8-venv python3.8-distutils python3-apt || { echo "❌ Failed to install Python 3.8"; exit 1; }
 
-# نصب پایتون 3.10
 echo "🔹 Installing Python 3.10..."
-apt install -y python3.10 python3.10-dev python3.10-venv python3.10-distutils \
-python3.10-lib2to3 python3.10-gdbm python3.10-tk
+apt install -y python3.10 python3.10-dev python3.10-venv python3.10-distutils || { echo "❌ Failed to install Python 3.10"; exit 1; }
 
-# تنظیم آلترناتیوها برای پایتون
 update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 8
 update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 10
+update-alternatives --set python3 /usr/bin/python3.10 || { echo "❌ Failed to set Python 3.10 as default"; exit 1; }
 
-# تنظیم پایتون 3.10 به عنوان پیش‌فرض
-update-alternatives --set python3 /usr/bin/python3.10
-
-# نصب pip برای پایتون 3.8 و 3.10
-echo "🔄 Installing pip for Python 3.8 and 3.10..."
-wget -O get-pip.py https://bootstrap.pypa.io/get-pip.py
-python3.8 get-pip.py
-python3.10 get-pip.py
+wget -O get-pip.py https://bootstrap.pypa.io/get-pip.py || { echo "❌ Failed to download get-pip.py"; exit 1; }
+python3.8 get-pip.py || { echo "❌ Failed to install pip for Python 3.8"; exit 1; }
+python3.10 get-pip.py || { echo "❌ Failed to install pip for Python 3.10"; exit 1; }
 rm -f get-pip.py
+python3.8 -m pip install --upgrade pip || { echo "❌ Failed to upgrade pip for Python 3.8"; exit 1; }
+python3.10 -m pip install --upgrade pip || { echo "❌ Failed to upgrade pip for Python 3.10"; exit 1; }
 
-# به‌روزرسانی pip
-python3.8 -m pip install --upgrade pip
-python3.10 -m pip install --upgrade pip
+ln -sf /usr/local/bin/pip3.10 /usr/local/bin/pip || { echo "❌ Failed to link pip"; exit 1; }
+ln -sf /usr/local/bin/pip3.10 /usr/local/bin/pip3 || { echo "❌ Failed to link pip3"; exit 1; }
 
-# تنظیم pip پیش‌فرض برای پایتون 3.10
-ln -sf /usr/local/bin/pip3.10 /usr/local/bin/pip
-ln -sf /usr/local/bin/pip3.10 /usr/local/bin/pip3
-
-# تست نسخه پیش‌فرض
 echo "🔍 Testing default Python version (should be 3.10)..."
-python3 -c "import sys; print(f'Default Python: {sys.version}')" || {
-    echo "❌ Python 3.10 not working properly";
-    exit 1;
-}
-
-# یادداشت برای کاربر
-echo "⚠️ Note: Use /usr/bin/python3.8 for tasks requiring apt_pkg, as it is not compatible with Python 3.10."
+python3 -c "import sys; print(f'Default Python: {sys.version}')" || { echo "❌ Python 3.10 not working"; exit 1; }
+echo "⚠️ Note: Use /usr/bin/python3.8 for tasks requiring apt_pkg."
 
 # 🛠️ 6. تنظیم پورت SSH و امنیت
 echo "🔒 Configuring SSH..."
@@ -169,47 +152,47 @@ sed -i 's/^PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_
 sed -i 's/^#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config
 sed -i 's/^PubkeyAuthentication no/PubkeyAuthentication yes/' /etc/ssh/sshd_config
 echo "PermitRootLogin no" >> /etc/ssh/sshd_config
-systemctl restart sshd || { echo "Failed to restart SSH"; exit 1; }
+systemctl restart sshd || { echo "❌ Failed to restart SSH"; exit 1; }
 
-# 🛠️ 7. نصب Nginx Proxy Manager به صورت داکر با تنظیمات لوکال
+# 🛠️ 7. نصب Nginx Proxy Manager
 echo "🌐 Installing Nginx Proxy Manager via Docker..."
-mkdir -p /opt/nginx-proxy-manager/data /opt/nginx-proxy-manager/letsencrypt
+mkdir -p /opt/nginx-proxy-manager/data /opt/nginx-proxy-manager/letsencrypt || { echo "❌ Failed to create Nginx Proxy Manager directories"; exit 1; }
 docker run -d \
     --name nginx-proxy-manager \
     -p 80:80 -p 81:81 -p 443:443 \
     -v /opt/nginx-proxy-manager/data:/data \
     -v /opt/nginx-proxy-manager/letsencrypt:/etc/letsencrypt \
     --restart unless-stopped \
-    jc21/nginx-proxy-manager:latest || { echo "Failed to run Nginx Proxy Manager"; exit 1; }
+    jc21/nginx-proxy-manager:latest || { echo "❌ Failed to run Nginx Proxy Manager"; exit 1; }
 
 # 🛠️ 8. نصب Code-Server
 echo "💻 Installing Code-Server..."
-curl -fsSL https://code-server.dev/install.sh | sh
-sudo systemctl enable --now code-server@"$NEW_USER"
-mkdir -p /home/"$NEW_USER"/.config/code-server
-cat <<EOL > /home/"$NEW_USER"/.config/code-server/config.yaml
+curl -fsSL https://code-server.dev/install.sh | sh || { echo "❌ Failed to install Code-Server"; exit 1; }
+systemctl enable --now code-server@"$NEW_USER" || { echo "❌ Failed to enable Code-Server"; exit 1; }
+mkdir -p "/home/$NEW_USER/.config/code-server" || { echo "❌ Failed to create Code-Server config dir"; exit 1; }
+cat <<EOL > "/home/$NEW_USER/.config/code-server/config.yaml"
 bind-addr: 0.0.0.0:$CODE_SERVER_PORT
 auth: password
 password: $CODE_SERVER_PASSWORD
 cert: false
 EOL
-chown -R "$NEW_USER":"$NEW_USER" /home/"$NEW_USER"/.config
-sudo setcap 'cap_net_bind_service=+ep' /usr/lib/code-server/lib/node || { echo "Failed to set capabilities for Code-Server"; exit 1; }
-sudo systemctl restart code-server@"$NEW_USER" || { echo "Failed to restart Code-Server"; exit 1; }
+chown -R "$NEW_USER":"$NEW_USER" "/home/$NEW_USER/.config" || { echo "❌ Failed to set ownership for Code-Server config"; exit 1; }
+setcap 'cap_net_bind_service=+ep' /usr/lib/code-server/lib/node || { echo "❌ Failed to set capabilities for Code-Server"; exit 1; }
+systemctl restart code-server@"$NEW_USER" || { echo "❌ Failed to restart Code-Server"; exit 1; }
 
 # 🛠️ 9. تنظیم فایروال UFW
 echo "🔥 Configuring UFW..."
-ufw default deny incoming
-ufw default allow outgoing
+ufw default deny incoming || { echo "❌ Failed to set UFW default deny"; exit 1; }
+ufw default allow outgoing || { echo "❌ Failed to set UFW default allow"; exit 1; }
 for port in "${PORTS_TO_OPEN[@]}"; do
-    ufw allow "$port"/tcp
+    ufw allow "$port/tcp" || { echo "❌ Failed to allow port $port"; exit 1; }
 done
-ufw --force enable || { echo "Failed to enable UFW"; exit 1; }
+ufw --force enable || { echo "❌ Failed to enable UFW"; exit 1; }
 
-# 🛠️ 10. نصب و تنظیم CrowdSec با داشبورد و اعلان تلگرام
+# 🛠️ 10. نصب و تنظیم CrowdSec
 echo "🛡️ Installing CrowdSec core..."
-curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | bash
-apt install -y crowdsec
+curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | bash || { echo "❌ Failed to add CrowdSec repo"; exit 1; }
+apt install -y crowdsec || { echo "❌ Failed to install CrowdSec"; exit 1; }
 cat <<EOL > /etc/crowdsec/acquis.yaml
 ---
 filenames:
@@ -231,22 +214,22 @@ labels:
   type: vsftpd
 EOL
 sed -i "s/ssh_port: '22'/ssh_port: '$SSH_PORT'/" /etc/crowdsec/parsers/s01-parse/sshd-logs.yaml
-systemctl enable crowdsec
-systemctl start crowdsec || { echo "Failed to start CrowdSec core"; exit 1; }
+systemctl enable crowdsec || { echo "❌ Failed to enable CrowdSec"; exit 1; }
+systemctl start crowdsec || { echo "❌ Failed to start CrowdSec"; exit 1; }
 
 echo "🛡️ Installing CrowdSec firewall bouncer..."
-apt install -y crowdsec-firewall-bouncer-iptables
-cscli machines add --auto
-systemctl enable crowdsec-firewall-bouncer
-systemctl start crowdsec-firewall-bouncer || { echo "Failed to start CrowdSec bouncer"; exit 1; }
+apt install -y crowdsec-firewall-bouncer-iptables || { echo "❌ Failed to install CrowdSec bouncer"; exit 1; }
+cscli machines add --auto || { echo "❌ Failed to add CrowdSec machine"; exit 1; }
+systemctl enable crowdsec-firewall-bouncer || { echo "❌ Failed to enable CrowdSec bouncer"; exit 1; }
+systemctl start crowdsec-firewall-bouncer || { echo "❌ Failed to start CrowdSec bouncer"; exit 1; }
 
-echo "🛡️ Setting up CrowdSec dashboard (interactive)..."
-cscli dashboard setup --listen 0.0.0.0
+echo "🛡️ Setting up CrowdSec dashboard..."
+cscli dashboard setup --listen 0.0.0.0 || { echo "❌ Failed to setup CrowdSec dashboard"; exit 1; }
 sleep 30
 CROWDSEC_PASSWORD=$(grep "password" /etc/crowdsec/metabase/metabase.yaml | awk '{print $2}' | tr -d '"')
 
 echo "🛡️ Setting up Telegram notification for CrowdSec..."
-apt install -y crowdsec-custom-bouncer
+apt install -y crowdsec-custom-bouncer || { echo "❌ Failed to install CrowdSec custom bouncer"; exit 1; }
 cat <<EOL > /etc/crowdsec/notifications/http.yaml
 type: http
 name: http_telegram
@@ -256,15 +239,14 @@ headers:
   Content-Type: "application/x-www-form-urlencoded"
 body: "chat_id=$TELEGRAM_CHAT_ID&text=🚨 حمله تشخیص داده شد!\nسرور: $(hostname)\nنوع حمله: \${scenario}\nIP مهاجم: \${source_ip}\nزمان: \${time}\nجزئیات: \${alert}"
 EOL
-cscli notifications add /etc/crowdsec/notifications/http.yaml
+cscli notifications add /etc/crowdsec/notifications/http.yaml || { echo "❌ Failed to add CrowdSec notification"; exit 1; }
 sed -i '/^notifications:/a\  - http_telegram' /etc/crowdsec/config.yaml
-systemctl restart crowdsec || { echo "Failed to restart CrowdSec"; exit 1; }
+systemctl restart crowdsec || { echo "❌ Failed to restart CrowdSec"; exit 1; }
 
 # 🛠️ 11. نصب ابزارهای اضافی و Netdata
 echo "📦 Installing additional tools and Netdata..."
 apt install -y wget curl net-tools iperf3 htop glances tmux rsync vim nano unzip zip build-essential git lftp \
-               clamav clamav-daemon rkhunter lynis auditd tcpdump nmap || { echo "Failed to install additional tools"; exit 1; }
-apt install -y netdata || { echo "Failed to install Netdata package"; exit 1; }
+               clamav clamav-daemon rkhunter lynis auditd tcpdump nmap netdata || { echo "❌ Failed to install tools"; exit 1; }
 cat <<EOL > /etc/netdata/netdata.conf
 [global]
     run as user = netdata
@@ -273,10 +255,9 @@ cat <<EOL > /etc/netdata/netdata.conf
 [web]
     bind to = 0.0.0.0:$NETDATA_PORT
 EOL
-systemctl enable netdata
-systemctl restart netdata || { echo "Failed to restart Netdata"; exit 1; }
-systemctl stop postfix
-systemctl disable postfix
+systemctl enable netdata || { echo "❌ Failed to enable Netdata"; exit 1; }
+systemctl restart netdata || { echo "❌ Failed to restart Netdata"; exit 1; }
+systemctl stop postfix && systemctl disable postfix
 
 # 🛠️ 12. تنظیمات امنیتی سیستمی
 echo "🔧 Applying system security settings..."
@@ -291,7 +272,7 @@ sysctl -w net.ipv4.conf.default.secure_redirects=0
 sysctl -w net.ipv4.conf.all.accept_source_route=0
 sysctl -w net.ipv4.conf.default.accept_source_route=0
 sysctl -w kernel.yama.ptrace_scope=1
-sysctl -p
+sysctl -p || { echo "❌ Failed to apply sysctl settings"; exit 1; }
 
 # 🛠️ 13. تنظیم اسکن‌های روزانه
 echo "⏰ Setting up daily scans..."
@@ -301,30 +282,23 @@ echo "⏰ Setting up daily scans..."
 
 # 🛠️ 14. راه‌اندازی مجدد سرویس‌ها
 echo "🔄 Reloading services..."
-systemctl restart sshd
-ufw reload
+systemctl restart sshd || { echo "❌ Failed to restart SSH"; exit 1; }
+ufw reload || { echo "❌ Failed to reload UFW"; exit 1; }
 
-# 🛠️ 15. نصب و تنظیم FTP با کاربر secftpuser (بدون SSL)
+# 🛠️ 15. نصب و تنظیم FTP
 echo "📡 Setting up FTP server (vsftpd) with user 'secftpuser' without SSL..."
-apt install -y vsftpd || { echo "Failed to install vsftpd"; exit 1; }
+apt install -y vsftpd || { echo "❌ Failed to install vsftpd"; exit 1; }
 systemctl stop vsftpd
 
-# چک کردن و ایجاد کاربر secftpuser
 if ! id "secftpuser" &>/dev/null; then
     echo "👤 Creating FTP user: secftpuser..."
-    useradd -m -d /home/secftpuser -s /bin/bash secftpuser
-    echo "secftpuser:YumJdc\$Qvs3mZ^*dFJxa" | chpasswd
-fi
-if ! id "$NEW_USER" &>/dev/null; then
-    echo "❌ User $NEW_USER not found! This should not happen."
-    exit 1
+    useradd -m -d /home/secftpuser -s /bin/bash secftpuser || { echo "❌ Failed to create secftpuser"; exit 1; }
+    echo "secftpuser:YumJdc\$Qvs3mZ^*dFJxa" | chpasswd || { echo "❌ Failed to set password for secftpuser"; exit 1; }
 fi
 
-# تنظیم دسترسی به /home/bigpython
-chown secftpuser:secftpuser /home/bigpython
-chmod 750 /home/bigpython
+chown secftpuser:secftpuser "/home/$NEW_USER" || { echo "❌ Failed to set ownership for /home/$NEW_USER"; exit 1; }
+chmod 750 "/home/$NEW_USER" || { echo "❌ Failed to set permissions for /home/$NEW_USER"; exit 1; }
 
-# تنظیمات vsftpd بدون SSL
 cat <<EOL > /etc/vsftpd.conf
 listen=YES
 listen_port=2121
@@ -350,81 +324,43 @@ EOL
 
 echo "secftpuser" > /etc/vsftpd.userlist
 echo "secftpuser" > /etc/vsftpd.chroot_list
-usermod -d /home/bigpython secftpuser
+usermod -d "/home/$NEW_USER" secftpuser || { echo "❌ Failed to set home dir for secftpuser"; exit 1; }
 
-chmod 600 /etc/vsftpd.conf /etc/vsftpd.userlist /etc/vsftpd.chroot_list
-chown root:root /etc/vsftpd.conf /etc/vsftpd.userlist /etc/vsftpd.chroot_list
+chmod 600 /etc/vsftpd.conf /etc/vsftpd.userlist /etc/vsftpd.chroot_list || { echo "❌ Failed to set permissions for vsftpd configs"; exit 1; }
+chown root:root /etc/vsftpd.conf /etc/vsftpd.userlist /etc/vsftpd.chroot_list || { echo "❌ Failed to set ownership for vsftpd configs"; exit 1; }
 
-systemctl enable vsftpd
-systemctl start vsftpd || { echo "Failed to start vsftpd"; exit 1; }
+systemctl enable vsftpd || { echo "❌ Failed to enable vsftpd"; exit 1; }
+systemctl start vsftpd || { echo "❌ Failed to start vsftpd"; exit 1; }
 
 # 🛠️ 16. تست نهایی SSH و Docker
 echo "🔍 Final check for SSH and Docker..."
 if systemctl is-active sshd >/dev/null && systemctl is-active docker >/dev/null; then
     echo "✅ SSH and Docker are running successfully!"
-    REPORT=$(echo -e "📌 گزارش نصب سرور"
-    echo -e "{"
-    echo -e "  \"نام سرور\": \"$SERVER_NAME\","
-    echo -e "  \"IP سرور\": \"$SERVER_IP\","
-    echo -e "  \"محل سرور\": \"$SERVER_LOCATION\","
-    echo -e "  \"پورت SSH\": \"$SSH_PORT\","
-    echo -e "  \"برنامه‌های نصب‌شده\": ["
-    echo -e "    \"Docker\","
-    echo -e "    \"Docker Compose\","
-    echo -e "    \"Portainer\","
-    echo -e "    \"Code-Server\","
-    echo -e "    \"CrowdSec\","
-    echo -e "    \"Netdata\","
-    echo -e "    \"vsftpd\","
-    echo -e "    \"wget, curl, net-tools, iperf3\","
-    echo -e "    \"htop, glances, tmux\","
-    echo -e "    \"rsync, vim, nano, unzip, zip\","
-    echo -e "    \"build-essential, git, lftp\","
-    echo -e "    \"clamav, clamav-daemon, rkhunter, lynis\","
-    echo -e "    \"auditd, tcpdump, nmap\""
-    echo -e "  ],"
-    echo -e "  \"سرویس‌های قابل دسترسی\": ["
-    echo -e "    {"
-    echo -e "      \"نام\": \"FTP (vsftpd)\","
-    echo -e "      \"آدرس\": \"ftp://$SERVER_IP:2121\","
-    echo -e "      \"نام کاربری\": \"secftpuser\","
-    echo -e "      \"رمز\": \"YumJdc\$Qvs3mZ^*dFJxa\","
-    echo -e "      \"توضیحات\": \"دسترسی به /home/bigpython\""
-    echo -e "    },"
-    echo -e "    {"
-    echo -e "      \"نام\": \"Code-Server\","
-    echo -e "      \"آدرس\": \"http://$SERVER_IP:$CODE_SERVER_PORT\","
-    echo -e "      \"نام کاربری\": \"N/A\","
-    echo -e "      \"رمز\": \"$CODE_SERVER_PASSWORD\""
-    echo -e "    },"
-    echo -e "    {"
-    echo -e "      \"نام\": \"CrowdSec Dashboard\","
-    echo -e "      \"آدرس\": \"http://$SERVER_IP:$CROWDSEC_DASHBOARD_PORT\","
-    echo -e "      \"نام کاربری\": \"crowdsec@crowdsec.net\","
-    echo -e "      \"رمز\": \"$CROWDSEC_PASSWORD\""
-    echo -e "    },"
-    echo -e "    {"
-    echo -e "      \"نام\": \"Netdata\","
-    echo -e "      \"آدرس\": \"http://$SERVER_IP:$NETDATA_PORT\","
-    echo -e "      \"نام کاربری\": \"N/A\","
-    echo -e "      \"رمز\": \"N/A\""
-    echo -e "    },"
-    echo -e "    {"
-    echo -e "      \"نام\": \"Nginx Proxy Manager\","
-    echo -e "      \"آدرس\": \"http://$SERVER_IP:81\","
-    echo -e "      \"نام کاربری\": \"پیش‌فرض\","
-    echo -e "      \"رمز\": \"پیش‌فرض (بعد از ورود تغییر دهید)\""
-    echo -e "    },"
-    echo -e "    {"
-    echo -e "      \"نام\": \"Portainer\","
-    echo -e "      \"آدرس\": \"http://$SERVER_IP:$PORTAINER_PORT\","
-    echo -e "      \"نام کاربری\": \"N/A (اولین ورود رمز تنظیم کنید)\","
-    echo -e "      \"رمز\": \"N/A (اولین ورود رمز تنظیم کنید)\""
-    echo -e "    }"
-    echo -e "  ],"
-    echo -e "  \"زمان نصب\": \"$(date)\""
-    echo -e "}"
-    echo -e "➖ نصب با موفقیت انجام شد!")
+    REPORT=$(cat <<EOL
+📌 گزارش نصب سرور
+{
+  "نام سرور": "$SERVER_NAME",
+  "IP سرور": "$SERVER_IP",
+  "محل سرور": "$SERVER_LOCATION",
+  "پورت SSH": "$SSH_PORT",
+  "برنامه‌های نصب‌شده": [
+    "Docker", "Docker Compose", "Portainer", "Code-Server", "CrowdSec", "Netdata", "vsftpd",
+    "wget, curl, net-tools, iperf3", "htop, glances, tmux", "rsync, vim, nano, unzip, zip",
+    "build-essential, git, lftp", "clamav, clamav-daemon, rkhunter, lynis", "auditd, tcpdump, nmap"
+  ],
+  "سرویس‌های قابل دسترسی": [
+    {"نام": "FTP (vsftpd)", "آدرس": "ftp://$SERVER_IP:2121", "نام کاربری": "secftpuser", "رمز": "YumJdc\$Qvs3mZ^*dFJxa", "توضیحات": "دسترسی به /home/bigpython"},
+    {"نام": "Code-Server", "آدرس": "http://$SERVER_IP:$CODE_SERVER_PORT", "نام کاربری": "N/A", "رمز": "$CODE_SERVER_PASSWORD"},
+    {"نام": "CrowdSec Dashboard", "آدرس": "http://$SERVER_IP:$CROWDSEC_DASHBOARD_PORT", "نام کاربری": "crowdsec@crowdsec.net", "رمز": "$CROWDSEC_PASSWORD"},
+    {"نام": "Netdata", "آدرس": "http://$SERVER_IP:$NETDATA_PORT", "نام کاربری": "N/A", "رمز": "N/A"},
+    {"نام": "Nginx Proxy Manager", "آدرس": "http://$SERVER_IP:81", "نام کاربری": "پیش‌فرض", "رمز": "پیش‌فرض (بعد از ورود تغییر دهید)"},
+    {"نام": "Portainer", "آدرس": "http://$SERVER_IP:$PORTAINER_PORT", "نام کاربری": "N/A (اولین ورود رمز تنظیم کنید)", "رمز": "N/A (اولین ورود رمز تنظیم کنید)"}
+  ],
+  "زمان نصب": "$(date)"
+}
+➖ نصب با موفقیت انجام شد!
+EOL
+    )
     send_telegram "$REPORT"
 else
     echo "❌ Problem detected: SSH or Docker is not running."
@@ -432,10 +368,10 @@ else
     exit 1
 fi
 
-# ری‌استارت Portainer برای باز کردن پنجره تنظیم رمز
+# ری‌استارت Portainer
 echo "🔄 Restarting Portainer to reset timeout..."
-sudo docker restart portainer
-echo "✅ Portainer restarted! Please access http://$SERVER_IP:$PORTAINER_PORT within 5 minutes to set the initial password."
+docker restart portainer || { echo "❌ Failed to restart Portainer"; exit 1; }
+echo "✅ Portainer restarted! Access http://$SERVER_IP:$PORTAINER_PORT within 5 minutes to set the initial password."
 
 echo "✅ Secure setup completed successfully at $(date)!"
 exit 0
