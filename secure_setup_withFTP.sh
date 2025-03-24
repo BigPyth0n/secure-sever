@@ -403,56 +403,39 @@ systemctl start vsftpd || { echo "Failed to start vsftpd"; exit 1; }
 
 
 
-
-
-
-# 🛠️ 16. نصب TA-Lib (نسخه بهینه شده)
-echo "📈 Installing TA-Lib (optimized method)..."
-
-TA_LIB_INSTALL_DIR="/opt/ta-lib"
-mkdir -p "$TA_LIB_INSTALL_DIR"
+# 🛠️ نصب TA-Lib (نسخه بهینه شده با حفظ ساختار اصلی)
+echo "📈 Installing TA-Lib (optimized and tested version)..."
 
 {
-    # نصب پیش‌نیازها (با تأیید نسخه پایتون)
-    if ! python3.10 -c "import sys"; then
-        echo "❌ Python 3.10 not working properly! Fixing..."
-        update-alternatives --set python3 /usr/bin/python3.10
-    fi
-    
+    # مرحله 1: نصب پیش‌نیازها
     apt install -y build-essential libncurses5-dev libncursesw5-dev wget make
     
-    # دانلود با قابلیت تکرار در صورت خطا
-    for i in {1..3}; do
-        wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz -O "$TA_LIB_INSTALL_DIR/ta-lib-src.tar.gz" && break
-        sleep 5
-    done
+    # مرحله 2: دانلود و استخراج
+    wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz -O /tmp/ta-lib-src.tar.gz
+    tar -xzf /tmp/ta-lib-src.tar.gz -C /tmp
     
-    tar -xzf "$TA_LIB_INSTALL_DIR/ta-lib-src.tar.gz" -C "$TA_LIB_INSTALL_DIR"
-    
-    cd "$TA_LIB_INSTALL_DIR/ta-lib" || { echo "❌ Failed to enter TA-Lib directory"; exit 1; }
+    # مرحله 3: کامپایل و نصب
+    cd /tmp/ta-lib || { echo "❌ Failed to enter TA-Lib directory"; exit 1; }
     ./configure --prefix=/usr
     make -j$(nproc)
-    sudo make install
-    sudo ldconfig
+    make install
     
-    # نصب با چک کردن pip
-    if ! python3.10 -m pip --version; then
-        wget https://bootstrap.pypa.io/get-pip.py
-        python3.10 get-pip.py
+    # مرحله 4: تنظیم مسیر کتابخانه‌ها
+    echo "/usr/lib" > /etc/ld.so.conf.d/ta-lib.conf
+    ldconfig
+    
+    # مرحله 5: نصب بسته پایتونی
+    export TA_LIBRARY_PATH="/usr/lib"
+    /usr/bin/python3.10 -m pip install --global-option=build_ext --global-option="-L/usr/lib" TA-Lib
+    
+    # مرحله 6: تست نصب
+    if python3.10 -c "import talib; print('✅ TA-Lib version:', talib.__version__)"; then
+        echo "🎉 TA-Lib installed successfully!"
+        rm -rf /tmp/ta-lib /tmp/ta-lib-src.tar.gz
+    else
+        echo "❌ TA-Lib installation verification failed"
+        exit 1
     fi
-    
-    python3.10 -m pip install TA-Lib
-    
-    # تست نصب با تشخیص خطا
-    if ! python3.10 -c "import talib; print('✅ TA-Lib version:', talib.__version__)"; then
-        echo "⚠️ Trying alternative installation path..."
-        export TA_LIBRARY_PATH="/usr/lib"
-        python3.10 -m pip install --global-option=build_ext --global-option="-L/usr/lib" TA-Lib
-    fi
-    
-    # تست نهایی
-    python3.10 -c "import talib; print('🎉 Final verification - TA-Lib version:', talib.__version__)"
-    rm -f "$TA_LIB_INSTALL_DIR/ta-lib-src.tar.gz"
 } || {
     echo "❌ TA-Lib installation failed" >&2
     exit 1
