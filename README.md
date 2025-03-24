@@ -44,7 +44,7 @@
 ### روش 1: مستقیم از GitHub
 1. توی سرور، دستور زیر رو بزن:
    ```bash
-   curl -s https://raw.githubusercontent.com/BigPyth0n/secure-sever/blob/main/secure_setup.sh | sudo bash
+   curl -s https://raw.githubusercontent.com/BigPyth0n/secure-sever/main/secure_setup.sh | sudo bash | sudo bash
 
 
 ### روش 2: به صورت دانلود روی سرور و اجرا کردن
