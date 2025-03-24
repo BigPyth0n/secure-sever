@@ -1,6 +1,6 @@
 # Server Setup Script
 
-![GitHub](https://img.shields.io/github/license/YourUsername/server-setup-script) ![GitHub last commit](https://img.shields.io/github/last-commit/YourUsername/server-setup-script)
+![GitHub](https://img.shields.io/github/license/YourUsername/secure-sever) ![GitHub last commit](https://img.shields.io/github/last-commit/BigPyth0n/secure-sever)
 
 این اسکریپت یه ابزار خودکار برای راه‌اندازی یه سرور امن و کاربردی روی اوبونتو 20.04 هست. هدفش نصب و تنظیم سرویس‌ها و برنامه‌های ضروری برای مدیریت سرور، مانیتورینگ، و امنیت با کمترین دخالت کاربره.
 
@@ -44,4 +44,4 @@
 ### روش 1: مستقیم از GitHub
 1. توی سرور، دستور زیر رو بزن:
    ```bash
-   curl -s https://raw.githubusercontent.com/YourUsername/server-setup-script/main/secure_setup.sh | sudo bash
+   curl -s https://raw.githubusercontent.com/BigPyth0n/secure-sever/blob/main/secure_setup.sh | sudo bash
