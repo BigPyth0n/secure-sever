@@ -25,7 +25,7 @@ SERVER_LOCATION=$(curl -s "http://ip-api.com/line/$SERVER_IP?fields=country,city
 SERVER_NAME=$(hostname)
 
 # 🛠️ لیست برنامه‌های نصب‌شده
-INSTALLED_APPS="Docker, Docker Compose, Portainer, Code-Server, CrowdSec, Netdata, vsftpd, TA-Lib, wget, curl, net-tools, iperf3, htop, glances, tmux, rsync, vim, nano, unzip, zip, build-essential, git, lftp, clamav, clamav-daemon, rkhunter, lynis, auditd, tcpdump, nmap"
+INSTALLED_APPS="Docker, Docker Compose, Portainer, Code-Server, CrowdSec, Netdata, vsftpd, wget, curl, net-tools, iperf3, htop, glances, tmux, rsync, vim, nano, unzip, zip, build-essential, git, lftp, clamav, clamav-daemon, rkhunter, lynis, auditd, tcpdump, nmap"
 
 # 🛠️ لاگ‌گیری
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -106,8 +106,7 @@ docker run -d \
     portainer/portainer-ce:latest || { echo "Failed to run Portainer"; exit 1; }
 echo "⚠️ Portainer installed! You will need to set the initial password at http://$SERVER_IP:$PORTAINER_PORT after the script finishes."
 
-
-
+# 🛠️ 5. نصب نسخه‌های مختلف پایتون
 echo "🐍 Installing Python versions with full dependencies..."
 
 # نصب پیش‌نیازهای عمومی
@@ -196,8 +195,6 @@ ln -sf /opt/py3.10-env/bin/pip /usr/local/bin/pip
 ln -sf /opt/py3.10-env/bin/pip3 /usr/local/bin/pip3
 
 echo "✅ Python setup completed successfully!"
-
-
 
 # 🛠️ 6. تنظیم پورت SSH و امنیت
 echo "🔒 Configuring SSH..."
@@ -397,61 +394,7 @@ chown root:root /etc/vsftpd.conf /etc/vsftpd.userlist /etc/vsftpd.chroot_list
 systemctl enable vsftpd
 systemctl start vsftpd || { echo "Failed to start vsftpd"; exit 1; }
 
-
-
-
-
-
-
-# 🛠️ نصب TA-Lib (نسخه بهینه شده با حفظ ساختار اصلی)
-echo "📈 Installing TA-Lib (optimized and tested version)..."
-
-{
-    # مرحله 1: نصب پیش‌نیازها
-    apt install -y build-essential libncurses5-dev libncursesw5-dev wget make
-    
-    # مرحله 2: دانلود و استخراج
-    wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz -O /tmp/ta-lib-src.tar.gz
-    tar -xzf /tmp/ta-lib-src.tar.gz -C /tmp
-    
-    # مرحله 3: کامپایل و نصب
-    cd /tmp/ta-lib || { echo "❌ Failed to enter TA-Lib directory"; exit 1; }
-    ./configure --prefix=/usr
-    make -j$(nproc)
-    make install
-    
-    # مرحله 4: تنظیم مسیر کتابخانه‌ها
-    echo "/usr/lib" > /etc/ld.so.conf.d/ta-lib.conf
-    ldconfig
-    
-    # مرحله 5: نصب بسته پایتونی
-    export TA_LIBRARY_PATH="/usr/lib"
-    /usr/bin/python3.10 -m pip install --global-option=build_ext --global-option="-L/usr/lib" TA-Lib
-    
-    # مرحله 6: تست نصب
-    if python3.10 -c "import talib; print('✅ TA-Lib version:', talib.__version__)"; then
-        echo "🎉 TA-Lib installed successfully!"
-        rm -rf /tmp/ta-lib /tmp/ta-lib-src.tar.gz
-    else
-        echo "❌ TA-Lib installation verification failed"
-        exit 1
-    fi
-} || {
-    echo "❌ TA-Lib installation failed" >&2
-    exit 1
-}
-
-
-
-
-
-
-
-
-
-
-
-# 🛠️ 17. تست نهایی SSH و Docker
+# 🛠️ 16. تست نهایی SSH و Docker
 echo "🔍 Final check for SSH and Docker..."
 if systemctl is-active sshd >/dev/null && systemctl is-active docker >/dev/null; then
     echo "✅ SSH and Docker are running successfully!"
@@ -469,7 +412,6 @@ if systemctl is-active sshd >/dev/null && systemctl is-active docker >/dev/null;
     echo -e "    \"CrowdSec\","
     echo -e "    \"Netdata\","
     echo -e "    \"vsftpd\","
-    echo -e "    \"TA-Lib\","
     echo -e "    \"wget, curl, net-tools, iperf3\","
     echo -e "    \"htop, glances, tmux\","
     echo -e "    \"rsync, vim, nano, unzip, zip\","
