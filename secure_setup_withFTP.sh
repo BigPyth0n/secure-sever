@@ -403,147 +403,60 @@ systemctl start vsftpd || { echo "Failed to start vsftpd"; exit 1; }
 
 
 
-#!/bin/bash
 
-# اصلاح لینک‌های کتابخانه پایتون سیستمی
-sudo ln -sf /usr/lib/python3/dist-packages/apt_pkg.cpython-38-x86_64-linux-gnu.so /usr/lib/python3/dist-packages/apt_pkg.so
 
-# نصب مجدد python3-apt
-sudo apt-get remove --purge python3-apt -y
-sudo apt-get install python3-apt --reinstall -y
 
-# بررسی صحت عملکرد apt
-sudo apt-get update
+# 🛠️ 16. نصب TA-Lib (نسخه بهینه شده)
+echo "📈 Installing TA-Lib (optimized method)..."
 
-# تنظیمات اولیه
-PYTHON_VERSION="3.10"
-LOG_FILE="/tmp/ta-lib-install.log"
-INSTALL_DIR="/opt/ta-lib"  # تغییر مسیر نصب به /opt برای ماندگاری بیشتر
+TA_LIB_INSTALL_DIR="/opt/ta-lib"
+mkdir -p "$TA_LIB_INSTALL_DIR"
 
-# پاکسازی فایل لاگ قدیمی
-> "$LOG_FILE"
-
-# تابع مدیریت خطا
-handle_error() {
-    echo -e "\n❌ Error in line $1"
-    echo "Last 10 lines of log:"
-    tail -n 10 "$LOG_FILE"
-    echo "Full log available at: $LOG_FILE"
+{
+    # نصب پیش‌نیازها (با تأیید نسخه پایتون)
+    if ! python3.10 -c "import sys"; then
+        echo "❌ Python 3.10 not working properly! Fixing..."
+        update-alternatives --set python3 /usr/bin/python3.10
+    fi
+    
+    apt install -y build-essential libncurses5-dev libncursesw5-dev wget make
+    
+    # دانلود با قابلیت تکرار در صورت خطا
+    for i in {1..3}; do
+        wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz -O "$TA_LIB_INSTALL_DIR/ta-lib-src.tar.gz" && break
+        sleep 5
+    done
+    
+    tar -xzf "$TA_LIB_INSTALL_DIR/ta-lib-src.tar.gz" -C "$TA_LIB_INSTALL_DIR"
+    
+    cd "$TA_LIB_INSTALL_DIR/ta-lib" || { echo "❌ Failed to enter TA-Lib directory"; exit 1; }
+    ./configure --prefix=/usr
+    make -j$(nproc)
+    sudo make install
+    sudo ldconfig
+    
+    # نصب با چک کردن pip
+    if ! python3.10 -m pip --version; then
+        wget https://bootstrap.pypa.io/get-pip.py
+        python3.10 get-pip.py
+    fi
+    
+    python3.10 -m pip install TA-Lib
+    
+    # تست نصب با تشخیص خطا
+    if ! python3.10 -c "import talib; print('✅ TA-Lib version:', talib.__version__)"; then
+        echo "⚠️ Trying alternative installation path..."
+        export TA_LIBRARY_PATH="/usr/lib"
+        python3.10 -m pip install --global-option=build_ext --global-option="-L/usr/lib" TA-Lib
+    fi
+    
+    # تست نهایی
+    python3.10 -c "import talib; print('🎉 Final verification - TA-Lib version:', talib.__version__)"
+    rm -f "$TA_LIB_INSTALL_DIR/ta-lib-src.tar.gz"
+} || {
+    echo "❌ TA-Lib installation failed" >&2
     exit 1
 }
-
-trap 'handle_error $LINENO' ERR
-
-# مرحله 1: حل مشکل apt_pkg (اگر وجود دارد)
-echo -e "\n🔹 Fixing potential apt_pkg issues..."
-{
-    # ایجاد لینک سمبلیک برای پایتون 3.10
-    sudo ln -sf /usr/lib/python3/dist-packages/apt_pkg.cpython-38-x86_64-linux-gnu.so \
-              /usr/lib/python3.10/site-packages/apt_pkg.so || true
-    
-    sudo apt-get remove --purge python3-apt -y || true
-    sudo apt-get install python3-apt --reinstall -y
-} >> "$LOG_FILE" 2>&1
-
-# مرحله 2: به روزرسانی apt (با روش مطمئن)
-echo -e "\n🔹 Updating package list (safe method)..."
-{
-    sudo rm -f /var/lib/apt/lists/lock
-    sudo rm -f /var/cache/apt/archives/lock
-    sudo dpkg --configure -a
-    sudo apt-get update --fix-missing
-} >> "$LOG_FILE" 2>&1
-
-# مرحله 3: نصب پیش‌نیازهای اساسی
-echo -e "\n🔹 Installing essential prerequisites..."
-{
-    sudo apt-get install -y \
-        python3-dev \
-        build-essential \
-        wget \
-        curl \
-        libncurses5-dev \
-        libncursesw5-dev \
-        zlib1g-dev \
-        libbz2-dev \
-        libssl-dev \
-        libffi-dev \
-        libsqlite3-dev \
-        libreadline-dev \
-        liblzma-dev \
-        python"$PYTHON_VERSION" \
-        python"$PYTHON_VERSION"-dev \
-        python"$PYTHON_VERSION"-venv \
-        python"$PYTHON_VERSION"-distutils
-} >> "$LOG_FILE" 2>&1
-
-# مرحله 4: تنظیم محیط نصب
-echo -e "\n🔹 Setting up installation environment..."
-{
-    # ایجاد دایرکتوری نصب
-    sudo mkdir -p "$INSTALL_DIR"
-    sudo chown -R "$USER":"$USER" "$INSTALL_DIR"
-    
-    # ایجاد محیط مجازی
-    python"$PYTHON_VERSION" -m venv "$INSTALL_DIR/venv"
-    source "$INSTALL_DIR/venv/bin/activate"
-    
-    # نصب و به‌روزرسانی pip
-    curl -sS https://bootstrap.pypa.io/get-pip.py | python
-    pip install --upgrade pip setuptools wheel
-} >> "$LOG_FILE" 2>&1
-
-# مرحله 5: نصب TA-Lib (روش بهینه شده)
-echo -e "\n🔹 Installing TA-Lib (optimized method)..."
-{
-    source "$INSTALL_DIR/venv/bin/activate"
-    
-    # روش اول: نصب مستقیم از PyPI با کامپایل خودکار
-    if ! pip install TA-Lib; then
-        echo "Primary method failed, trying alternative approach..."
-        
-        # روش جایگزین: کامپایل از سورس
-        wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz -O "$INSTALL_DIR/ta-lib-src.tar.gz"
-        tar -xzf "$INSTALL_DIR/ta-lib-src.tar.gz" -C "$INSTALL_DIR"
-        
-        cd "$INSTALL_DIR/ta-lib" || exit 1
-        ./configure --prefix=/usr
-        make -j"$(nproc)"
-        sudo make install
-        sudo ldconfig
-        
-        # نصب بسته پایتونی
-        pip install TA-Lib
-        cd - || exit 1
-    fi
-} >> "$LOG_FILE" 2>&1
-
-# مرحله 6: تست نصب و تنظیمات نهایی
-echo -e "\n🔹 Verifying installation..."
-{
-    source "$INSTALL_DIR/venv/bin/activate"
-    
-    # تست نصب
-    if python -c "import talib; print('✅ TA-Lib version:', talib.__version__)"; then
-        # ایجاد لینک سمبلیک برای دسترسی آسان
-        sudo ln -sf "$INSTALL_DIR/venv/bin/python" /usr/local/bin/talib-python
-        sudo ln -sf "$INSTALL_DIR/venv/bin/pip" /usr/local/bin/talib-pip
-        
-        echo -e "\n🎉 TA-Lib installed successfully!"
-        echo "Virtual environment: $INSTALL_DIR/venv"
-        echo "Activate with: source $INSTALL_DIR/venv/bin/activate"
-        echo "Or use directly: talib-python -c \"import talib; print(talib.__version__)\""
-    else
-        echo "❌ TA-Lib installation verification failed"
-        exit 1
-    fi
-    
-    # پاکسازی
-    rm -f "$INSTALL_DIR/ta-lib-src.tar.gz"
-} >> "$LOG_FILE" 2>&1
-
-exit 0
-
 
 
 
