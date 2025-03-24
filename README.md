@@ -41,13 +41,9 @@
 ---
 
 ## نصب و اجرا
-### روش 1: مستقیم از GitHub
-توی سرور، دستور زیر رو بزن:
-   ```
-   curl -s https://raw.githubusercontent.com/BigPyth0n/secure-sever/refs/heads/main/secure_setup.sh | sudo bash
-```
 
-### روش 2: به صورت دانلود روی سرور و اجرا کردن
+
+### روش دستی: به صورت دانلود روی سرور و اجرا کردن
  دانلود روی سرور اعطای مجوز و نصب دستی
 
 
