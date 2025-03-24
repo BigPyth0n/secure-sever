@@ -113,7 +113,19 @@ apt update
 apt install -y python3.11 python3.11-distutils python3-pip python3-apt
 update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 2
 update-alternatives --set python3 /usr/bin/python3.11
-python3 -m pip install --upgrade pip
+# اطمینان از نصب apt_pkg برای Python 3.11
+if ! python3 -c "import apt_pkg" 2>/dev/null; then
+    echo "⚠️ apt_pkg not found for Python 3.11, attempting to fix..."
+    apt install --reinstall python3-apt -y
+    # چک دوباره
+    if ! python3 -c "import apt_pkg" 2>/dev/null; then
+        echo "❌ Failed to fix apt_pkg for Python 3.11. Falling back to default Python."
+        update-alternatives --set python3 /usr/bin/python3.8 || update-alternatives --set python3 /usr/bin/python3.10
+    fi
+fi
+python3 -m pip install --upgrade pip || { echo "Failed to upgrade pip"; exit 1; }
+# تست نهایی پایتون
+python3 -c "import sys; print(f'Python version: {sys.version}')" || { echo "❌ Python still not working"; exit 1; }
 
 # 🛠️ 6. تنظیم پورت SSH و امنیت
 echo "🔒 Configuring SSH..."
@@ -161,7 +173,7 @@ for port in "${PORTS_TO_OPEN[@]}"; do
 done
 ufw --force enable || { echo "Failed to enable UFW"; exit 1; }
 
-# 🛠️ 10. نصب و تنظیم CrowdSec با داشبورد
+# 🛠️ 10. نصب و تنظیم CrowdSec با داشبورد و اعلان تلگرام
 echo "🛡️ Installing CrowdSec core..."
 curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | bash
 apt install -y crowdsec
@@ -170,8 +182,20 @@ cat <<EOL > /etc/crowdsec/acquis.yaml
 filenames:
   - /var/log/nginx/access.log
   - /var/log/nginx/error.log
+  - /var/log/vsftpd.log
+  - /var/log/auth.log
 labels:
-  typeicamente nginx
+  type: nginx
+---
+filenames:
+  - /var/log/auth.log
+labels:
+  type: syslog
+---
+filenames:
+  - /var/log/vsftpd.log
+labels:
+  type: vsftpd
 EOL
 sed -i "s/ssh_port: '22'/ssh_port: '$SSH_PORT'/" /etc/crowdsec/parsers/s01-parse/sshd-logs.yaml
 systemctl enable crowdsec
@@ -187,6 +211,21 @@ echo "🛡️ Setting up CrowdSec dashboard (interactive)..."
 cscli dashboard setup --listen 0.0.0.0
 sleep 30
 CROWDSEC_PASSWORD=$(grep "password" /etc/crowdsec/metabase/metabase.yaml | awk '{print $2}' | tr -d '"')
+
+echo "🛡️ Setting up Telegram notification for CrowdSec..."
+apt install -y crowdsec-custom-bouncer
+cat <<EOL > /etc/crowdsec/notifications/http.yaml
+type: http
+name: http_telegram
+url: "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage"
+method: POST
+headers:
+  Content-Type: "application/x-www-form-urlencoded"
+body: "chat_id=$TELEGRAM_CHAT_ID&text=🚨 حمله تشخیص داده شد!\nسرور: $(hostname)\nنوع حمله: \${scenario}\nIP مهاجم: \${source_ip}\nزمان: \${time}\nجزئیات: \${alert}"
+EOL
+cscli notifications add /etc/crowdsec/notifications/http.yaml
+sed -i '/^notifications:/a\  - http_telegram' /etc/crowdsec/config.yaml
+systemctl restart crowdsec || { echo "Failed to restart CrowdSec"; exit 1; }
 
 # 🛠️ 11. نصب ابزارهای اضافی و Netdata
 echo "📦 Installing additional tools and Netdata..."
@@ -300,7 +339,7 @@ if systemctl is-active sshd >/dev/null && systemctl is-active docker >/dev/null;
     echo -e "    \"Docker Compose\","
     echo -e "    \"Portainer\","
     echo -e "    \"Code-Server\","
-    echo -Cho "CrowdSec\","
+    echo -e "    \"CrowdSec\","
     echo -e "    \"Netdata\","
     echo -e "    \"vsftpd\","
     echo -e "    \"wget, curl, net-tools, iperf3\","
