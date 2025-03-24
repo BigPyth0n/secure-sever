@@ -235,61 +235,61 @@ ufw reload
 echo "🔍 Final check for SSH and Docker..."
 if systemctl is-active sshd >/dev/null && systemctl is-active docker >/dev/null; then
     echo "✅ SSH and Docker are running successfully!"
-    REPORT="📌 گزارش نصب سرور\n"
-    REPORT+="{\n"
-    REPORT+="  \"نام سرور\": \"$SERVER_NAME\",\n"
-    REPORT+="  \"IP سرور\": \"$SERVER_IP\",\n"
-    REPORT+="  \"محل سرور\": \"$SERVER_LOCATION\",\n"
-    REPORT+="  \"پورت SSH\": \"$SSH_PORT\",\n"
-    REPORT+="  \"برنامه‌های نصب‌شده\": [\n"
-    REPORT+="    \"Docker\",\n"
-    REPORT+="    \"Docker Compose\",\n"
-    REPORT+="    \"Portainer\",\n"
-    REPORT+="    \"Code-Server\",\n"
-    REPORT+="    \"CrowdSec\",\n"
-    REPORT+="    \"Netdata\",\n"
-    REPORT+="    \"wget, curl, net-tools, iperf3\",\n"
-    REPORT+="    \"htop, glances, tmux\",\n"
-    REPORT+="    \"rsync, vim, nano, unzip, zip\",\n"
-    REPORT+="    \"build-essential, git, lftp\",\n"
-    REPORT+="    \"clamav, clamav-daemon, rkhunter, lynis\",\n"
-    REPORT+="    \"auditd, tcpdump, nmap\"\n"
-    REPORT+="  ],\n"
-    REPORT+="  \"سرویس‌های قابل دسترسی\": [\n"
-    REPORT+="    {\n"
-    REPORT+="      \"نام\": \"Code-Server\",\n"
-    REPORT+="      \"آدرس\": \"http://$SERVER_IP:$CODE_SERVER_PORT\",\n"
-    REPORT+="      \"نام کاربری\": \"N/A\",\n"
-    REPORT+="      \"رمز\": \"$CODE_SERVER_PASSWORD\"\n"
-    REPORT+="    },\n"
-    REPORT+="    {\n"
-    REPORT+="      \"نام\": \"CrowdSec Dashboard\",\n"
-    REPORT+="      \"آدرس\": \"http://$SERVER_IP:$CROWDSEC_DASHBOARD_PORT\",\n"
-    REPORT+="      \"نام کاربری\": \"crowdsec@crowdsec.net\",\n"
-    REPORT+="      \"رمز\": \"$CROWDSEC_PASSWORD\"\n"
-    REPORT+="    },\n"
-    REPORT+="    {\n"
-    REPORT+="      \"نام\": \"Netdata\",\n"
-    REPORT+="      \"آدرس\": \"http://$SERVER_IP:$NETDATA_PORT\",\n"
-    REPORT+="      \"نام کاربری\": \"N/A\",\n"
-    REPORT+="      \"رمز\": \"N/A\"\n"
-    REPORT+="    },\n"
-    REPORT+="    {\n"
-    REPORT+="      \"نام\": \"Nginx Proxy Manager\",\n"
-    REPORT+="      \"آدرس\": \"http://$SERVER_IP:81\",\n"
-    REPORT+="      \"نام کاربری\": \"پیش‌فرض\",\n"
-    REPORT+="      \"رمز\": \"پیش‌فرض (بعد از ورود تغییر دهید)\"\n"
-    REPORT+="    },\n"
-    REPORT+="    {\n"
-    REPORT+="      \"نام\": \"Portainer\",\n"
-    REPORT+="      \"آدرس\": \"http://$SERVER_IP:$PORTAINER_PORT\",\n"
-    REPORT+="      \"نام کاربری\": \"N/A (اولین ورود رمز تنظیم کنید)\",\n"
-    REPORT+="      \"رمز\": \"N/A (اولین ورود رمز تنظیم کنید)\"\n"
-    REPORT+="    }\n"
-    REPORT+="  ],\n"
-    REPORT+="  \"زمان نصب\": \"$(date)\"\n"
-    REPORT+="}\n"
-    REPORT+="➖ نصب با موفقیت انجام شد!"
+    REPORT=$(echo -e "📌 گزارش نصب سرور"
+    echo -e "{"
+    echo -e "  \"نام سرور\": \"$SERVER_NAME\","
+    echo -e "  \"IP سرور\": \"$SERVER_IP\","
+    echo -e "  \"محل سرور\": \"$SERVER_LOCATION\","
+    echo -e "  \"پورت SSH\": \"$SSH_PORT\","
+    echo -e "  \"برنامه‌های نصب‌شده\": ["
+    echo -e "    \"Docker\","
+    echo -e "    \"Docker Compose\","
+    echo -e "    \"Portainer\","
+    echo -e "    \"Code-Server\","
+    echo -e "    \"CrowdSec\","
+    echo -e "    \"Netdata\","
+    echo -e "    \"wget, curl, net-tools, iperf3\","
+    echo -e "    \"htop, glances, tmux\","
+    echo -e "    \"rsync, vim, nano, unzip, zip\","
+    echo -e "    \"build-essential, git, lftp\","
+    echo -e "    \"clamav, clamav-daemon, rkhunter, lynis\","
+    echo -e "    \"auditd, tcpdump, nmap\""
+    echo -e "  ],"
+    echo -e "  \"سرویس‌های قابل دسترسی\": ["
+    echo -e "    {"
+    echo -e "      \"نام\": \"Code-Server\","
+    echo -e "      \"آدرس\": \"http://$SERVER_IP:$CODE_SERVER_PORT\","
+    echo -e "      \"نام کاربری\": \"N/A\","
+    echo -e "      \"رمز\": \"$CODE_SERVER_PASSWORD\""
+    echo -e "    },"
+    echo -e "    {"
+    echo -e "      \"نام\": \"CrowdSec Dashboard\","
+    echo -e "      \"آدرس\": \"http://$SERVER_IP:$CROWDSEC_DASHBOARD_PORT\","
+    echo -e "      \"نام کاربری\": \"crowdsec@crowdsec.net\","
+    echo -e "      \"رمز\": \"$CROWDSEC_PASSWORD\""
+    echo -e "    },"
+    echo -e "    {"
+    echo -e "      \"نام\": \"Netdata\","
+    echo -e "      \"آدرس\": \"http://$SERVER_IP:$NETDATA_PORT\","
+    echo -e "      \"نام کاربری\": \"N/A\","
+    echo -e "      \"رمز\": \"N/A\""
+    echo -e "    },"
+    echo -e "    {"
+    echo -e "      \"نام\": \"Nginx Proxy Manager\","
+    echo -e "      \"آدرس\": \"http://$SERVER_IP:81\","
+    echo -e "      \"نام کاربری\": \"پیش‌فرض\","
+    echo -e "      \"رمز\": \"پیش‌فرض (بعد از ورود تغییر دهید)\""
+    echo -e "    },"
+    echo -e "    {"
+    echo -e "      \"نام\": \"Portainer\","
+    echo -e "      \"آدرس\": \"http://$SERVER_IP:$PORTAINER_PORT\","
+    echo -e "      \"نام کاربری\": \"N/A (اولین ورود رمز تنظیم کنید)\","
+    echo -e "      \"رمز\": \"N/A (اولین ورود رمز تنظیم کنید)\""
+    echo -e "    }"
+    echo -e "  ],"
+    echo -e "  \"زمان نصب\": \"$(date)\""
+    echo -e "}"
+    echo -e "➖ نصب با موفقیت انجام شد!")
     send_telegram "$REPORT"
 else
     echo "❌ Problem detected: SSH or Docker is not running."
