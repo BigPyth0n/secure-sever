@@ -25,7 +25,7 @@ SERVER_LOCATION=$(curl -s "http://ip-api.com/line/$SERVER_IP?fields=country,city
 SERVER_NAME=$(hostname)
 
 # 🛠️ لیست برنامه‌های نصب‌شده
-INSTALLED_APPS="Docker, Docker Compose, Portainer, Code-Server, CrowdSec, Netdata, vsftpd, wget, curl, net-tools, iperf3, htop, glances, tmux, rsync, vim, nano, unzip, zip, build-essential, git, lftp, clamav, clamav-daemon, rkhunter, lynis, auditd, tcpdump, nmap"
+INSTALLED_APPS="Docker, Docker Compose, Portainer, Code-Server, CrowdSec, Netdata, vsftpd, TA-Lib, wget, curl, net-tools, iperf3, htop, glances, tmux, rsync, vim, nano, unzip, zip, build-essential, git, lftp, clamav, clamav-daemon, rkhunter, lynis, auditd, tcpdump, nmap"
 
 # 🛠️ لاگ‌گیری
 exec > >(tee -a "$LOG_FILE") 2>&1
@@ -106,9 +106,8 @@ docker run -d \
     portainer/portainer-ce:latest || { echo "Failed to run Portainer"; exit 1; }
 echo "⚠️ Portainer installed! You will need to set the initial password at http://$SERVER_IP:$PORTAINER_PORT after the script finishes."
 
-
 # 🛠️ 5. نصب پایتون‌های مختلف و تنظیم پیش‌فرض
-echo "🐍 Installing Python 3.10, 3.11, 3.13 with full dependencies..."
+echo "🐍 Installing Python 3.10 and 3.11 with full dependencies..."
 add-apt-repository ppa:deadsnakes/ppa -y
 apt update
 # نصب پایتون 3.10 با تمام وابستگی‌ها
@@ -129,19 +128,10 @@ apt install -y python3.11 \
                python3.11-lib2to3 \
                python3.11-gdbm \
                python3.11-tk || { echo "Failed to install Python 3.11 with dependencies"; exit 1; }
-# نصب پایتون 3.13 با تمام وابستگی‌ها
-apt install -y python3.13 \
-               python3.13-dev \
-               python3.13-distutils \
-               python3.13-venv \
-               python3.13-lib2to3 \
-               python3.13-gdbm \
-               python3.13-tk || { echo "Failed to install Python 3.13 with dependencies"; exit 1; }
 
-# تنظیم update-alternatives برای همه نسخه‌ها
+# تنظیم update-alternatives برای نسخه‌ها
 update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 10
 update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 11
-update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 13
 
 # تنظیم پایتون 3.10 به‌عنوان پیش‌فرض
 update-alternatives --set python3 /usr/bin/python3.10 || { echo "Failed to set Python 3.10 as default"; exit 1; }
@@ -150,7 +140,6 @@ update-alternatives --set python3 /usr/bin/python3.10 || { echo "Failed to set P
 echo "🔄 Updating pip for all Python versions..."
 /usr/bin/python3.10 -m pip install --upgrade pip || { echo "Failed to upgrade pip for Python 3.10"; exit 1; }
 /usr/bin/python3.11 -m pip install --upgrade pip || { echo "Failed to upgrade pip for Python 3.11"; exit 1; }
-/usr/bin/python3.13 -m pip install --upgrade pip || { echo "Failed to upgrade pip for Python 3.13"; exit 1; }
 
 # تست نسخه پیش‌فرض (3.10)
 echo "🔍 Testing default Python version (should be 3.10)..."
@@ -159,8 +148,6 @@ python3 -c "import sys; print(f'Python version: {sys.version}')" || { echo "❌ 
 # تست دسترسی به apt_pkg برای سازگاری سیستمی
 echo "🔍 Ensuring apt_pkg is available for Python 3.10..."
 python3 -c "import apt_pkg" || { echo "⚠️ apt_pkg not found for Python 3.10, attempting to fix..."; apt install --reinstall python3-apt -y; python3 -c "import apt_pkg" || { echo "❌ Failed to fix apt_pkg"; exit 1; }; }
-
-
 
 # 🛠️ 6. تنظیم پورت SSH و امنیت
 echo "🔒 Configuring SSH..."
@@ -264,7 +251,8 @@ systemctl restart crowdsec || { echo "Failed to restart CrowdSec"; exit 1; }
 
 # 🛠️ 11. نصب ابزارهای اضافی و Netdata
 echo "📦 Installing additional tools and Netdata..."
-apt install -y wget curl net-tools iperf3 htop glances tmux rsync vim nano unzip zip build-essential git lftp clamav clamav-daemon rkhunter lynis auditd tcpdump nmap
+apt install -y wget curl net-tools iperf3 htop glances tmux rsync vim nano unzip zip build-essential git lftp \
+               clamav clamav-daemon rkhunter lynis auditd tcpdump nmap || { echo "Failed to install additional tools"; exit 1; }
 apt install -y netdata || { echo "Failed to install Netdata package"; exit 1; }
 cat <<EOL > /etc/netdata/netdata.conf
 [global]
@@ -359,7 +347,35 @@ chown root:root /etc/vsftpd.conf /etc/vsftpd.userlist /etc/vsftpd.chroot_list
 systemctl enable vsftpd
 systemctl start vsftpd || { echo "Failed to start vsftpd"; exit 1; }
 
-# 🛠️ 16. تست نهایی SSH و Docker
+# 🛠️ 16. نصب TA-Lib از سورس با تمام وابستگی‌ها
+echo "📈 Installing TA-Lib from source with full dependencies..."
+# نصب پیش‌نیازها
+apt install -y build-essential libncurses5-dev libncursesw5-dev wget || { echo "Failed to install TA-Lib prerequisites"; exit 1; }
+# دانلود و استخراج TA-Lib
+wget -O ta-lib-0.4.0-src.tar.gz http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz || { echo "Failed to download TA-Lib"; exit 1; }
+tar zxvf ta-lib-0.4.0-src.tar.gz || { echo "Failed to extract TA-Lib"; exit 1; }
+cd ta-lib
+# تنظیم و کامپایل
+./configure --prefix=/usr || { echo "Failed to configure TA-Lib"; exit 1; }
+make || { echo "Failed to compile TA-Lib"; exit 1; }
+make install || { echo "Failed to install TA-Lib"; exit 1; }
+# برگشت به دایرکتوری اصلی
+cd ..
+# نصب نسخه پایتون TA-Lib برای پایتون پیش‌فرض (3.10)
+/usr/bin/python3.10 -m pip install TA-Lib || { echo "Failed to install TA-Lib Python package for 3.10"; exit 1; }
+# نصب اختیاری برای نسخه 3.11
+/usr/bin/python3.11 -m pip install TA-Lib || echo "Warning: Failed to install TA-Lib for 3.11, continuing..."
+# تست نصب TA-Lib
+echo "🔍 Testing TA-Lib installation for Python 3.10..."
+TALIB_VERSION=$(python3 -c "import talib; print(talib.__version__)" 2>/dev/null) || { echo "❌ TA-Lib not working with Python 3.10"; exit 1; }
+echo "✅ TA-Lib version $TALIB_VERSION installed successfully!"
+# ارسال گزارش نصب TA-Lib به تلگرام
+TALIB_REPORT="📈 نصب TA-Lib\nسرور: $SERVER_NAME\nنسخه: $TALIB_VERSION\nپایتون پیش‌فرض: 3.10\nزمان: $(date)"
+send_telegram "$TALIB_REPORT"
+# پاکسازی
+rm -rf ta-lib ta-lib-0.4.0-src.tar.gz
+
+# 🛠️ 17. تست نهایی SSH و Docker
 echo "🔍 Final check for SSH and Docker..."
 if systemctl is-active sshd >/dev/null && systemctl is-active docker >/dev/null; then
     echo "✅ SSH and Docker are running successfully!"
@@ -377,6 +393,7 @@ if systemctl is-active sshd >/dev/null && systemctl is-active docker >/dev/null;
     echo -e "    \"CrowdSec\","
     echo -e "    \"Netdata\","
     echo -e "    \"vsftpd\","
+    echo -e "    \"TA-Lib\","
     echo -e "    \"wget, curl, net-tools, iperf3\","
     echo -e "    \"htop, glances, tmux\","
     echo -e "    \"rsync, vim, nano, unzip, zip\","
