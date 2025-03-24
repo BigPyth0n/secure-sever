@@ -401,67 +401,151 @@ systemctl start vsftpd || { echo "Failed to start vsftpd"; exit 1; }
 
 
 
-# 🛠️ 16. نصب TA-Lib (نسخه بهبود یافته)
-echo "📈 Installing TA-Lib (optimized method)..."
 
-# تابع نمایش پیشرفت با timeout
-show_progress_with_timeout() {
-    local timeout=900  # 15 minutes
-    local start_time=$(date +%s)
-    
-    while true; do
-        echo -n "."
-        sleep 5
-        
-        local current_time=$(date +%s)
-        if (( current_time - start_time > timeout )); then
-            echo -e "\n⏰ Timeout reached! Installation took too long."
-            return 1
-        fi
-    done
+
+#!/bin/bash
+
+# اصلاح لینک‌های کتابخانه پایتون سیستمی
+sudo ln -sf /usr/lib/python3/dist-packages/apt_pkg.cpython-38-x86_64-linux-gnu.so /usr/lib/python3/dist-packages/apt_pkg.so
+
+# نصب مجدد python3-apt
+sudo apt-get remove --purge python3-apt -y
+sudo apt-get install python3-apt --reinstall -y
+
+# بررسی صحت عملکرد apt
+sudo apt-get update
+
+# تنظیمات اولیه
+PYTHON_VERSION="3.10"
+LOG_FILE="/tmp/ta-lib-install.log"
+INSTALL_DIR="/opt/ta-lib"  # تغییر مسیر نصب به /opt برای ماندگاری بیشتر
+
+# پاکسازی فایل لاگ قدیمی
+> "$LOG_FILE"
+
+# تابع مدیریت خطا
+handle_error() {
+    echo -e "\n❌ Error in line $1"
+    echo "Last 10 lines of log:"
+    tail -n 10 "$LOG_FILE"
+    echo "Full log available at: $LOG_FILE"
+    exit 1
 }
 
-# روش اول: استفاده از نسخه از پیش کامپایل شده
-if apt install -y python3-talib 2>/dev/null; then
-    echo -e "\n✅ TA-Lib installed successfully from system packages"
-else
-    # روش دوم: کامپایل از سورس با مدیریت بهتر
-    echo -e "\n🔹 System package not available, compiling from source..."
-    
-    show_progress_with_timeout &
-    PROGRESS_PID=$!
-    trap "kill $PROGRESS_PID 2>/dev/null" EXIT
-    
-    # نصب پیش‌نیازها
-    apt install -y build-essential libncurses5-dev libncursesw5-dev wget make
-    
-    # دانلود و استخراج
-    wget -O ta-lib-0.4.0-src.tar.gz http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
-    tar zxvf ta-lib-0.4.0-src.tar.gz
-    
-    # کامپایل با بهینه‌سازی
-    cd ta-lib
-    ./configure --prefix=/usr
-    make -j$(nproc)  # استفاده از تمام هسته‌های CPU
-    
-    # نصب
-    make install
-    ldconfig
-    
-    # نصب بسته پایتونی
-    /usr/bin/python3.10 -m pip install --global-option=build_ext --global-option="-L/usr/lib" TA-Lib
-    
-    kill $PROGRESS_PID
-    echo -e "\n✅ TA-Lib compiled and installed successfully"
-fi
+trap 'handle_error $LINENO' ERR
 
-# تست نصب
-if python3 -c "import talib; print('TA-Lib version:', talib.__version__)"; then
-    echo "🎉 TA-Lib is working correctly!"
-else
-    echo "❌ TA-Lib installation failed"
-    exit 1
-fi
+# مرحله 1: حل مشکل apt_pkg (اگر وجود دارد)
+echo -e "\n🔹 Fixing potential apt_pkg issues..."
+{
+    # ایجاد لینک سمبلیک برای پایتون 3.10
+    sudo ln -sf /usr/lib/python3/dist-packages/apt_pkg.cpython-38-x86_64-linux-gnu.so \
+              /usr/lib/python3.10/site-packages/apt_pkg.so || true
+    
+    sudo apt-get remove --purge python3-apt -y || true
+    sudo apt-get install python3-apt --reinstall -y
+} >> "$LOG_FILE" 2>&1
+
+# مرحله 2: به روزرسانی apt (با روش مطمئن)
+echo -e "\n🔹 Updating package list (safe method)..."
+{
+    sudo rm -f /var/lib/apt/lists/lock
+    sudo rm -f /var/cache/apt/archives/lock
+    sudo dpkg --configure -a
+    sudo apt-get update --fix-missing
+} >> "$LOG_FILE" 2>&1
+
+# مرحله 3: نصب پیش‌نیازهای اساسی
+echo -e "\n🔹 Installing essential prerequisites..."
+{
+    sudo apt-get install -y \
+        python3-dev \
+        build-essential \
+        wget \
+        curl \
+        libncurses5-dev \
+        libncursesw5-dev \
+        zlib1g-dev \
+        libbz2-dev \
+        libssl-dev \
+        libffi-dev \
+        libsqlite3-dev \
+        libreadline-dev \
+        liblzma-dev \
+        python"$PYTHON_VERSION" \
+        python"$PYTHON_VERSION"-dev \
+        python"$PYTHON_VERSION"-venv \
+        python"$PYTHON_VERSION"-distutils
+} >> "$LOG_FILE" 2>&1
+
+# مرحله 4: تنظیم محیط نصب
+echo -e "\n🔹 Setting up installation environment..."
+{
+    # ایجاد دایرکتوری نصب
+    sudo mkdir -p "$INSTALL_DIR"
+    sudo chown -R "$USER":"$USER" "$INSTALL_DIR"
+    
+    # ایجاد محیط مجازی
+    python"$PYTHON_VERSION" -m venv "$INSTALL_DIR/venv"
+    source "$INSTALL_DIR/venv/bin/activate"
+    
+    # نصب و به‌روزرسانی pip
+    curl -sS https://bootstrap.pypa.io/get-pip.py | python
+    pip install --upgrade pip setuptools wheel
+} >> "$LOG_FILE" 2>&1
+
+# مرحله 5: نصب TA-Lib (روش بهینه شده)
+echo -e "\n🔹 Installing TA-Lib (optimized method)..."
+{
+    source "$INSTALL_DIR/venv/bin/activate"
+    
+    # روش اول: نصب مستقیم از PyPI با کامپایل خودکار
+    if ! pip install TA-Lib; then
+        echo "Primary method failed, trying alternative approach..."
+        
+        # روش جایگزین: کامپایل از سورس
+        wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz -O "$INSTALL_DIR/ta-lib-src.tar.gz"
+        tar -xzf "$INSTALL_DIR/ta-lib-src.tar.gz" -C "$INSTALL_DIR"
+        
+        cd "$INSTALL_DIR/ta-lib" || exit 1
+        ./configure --prefix=/usr
+        make -j"$(nproc)"
+        sudo make install
+        sudo ldconfig
+        
+        # نصب بسته پایتونی
+        pip install TA-Lib
+        cd - || exit 1
+    fi
+} >> "$LOG_FILE" 2>&1
+
+# مرحله 6: تست نصب و تنظیمات نهایی
+echo -e "\n🔹 Verifying installation..."
+{
+    source "$INSTALL_DIR/venv/bin/activate"
+    
+    # تست نصب
+    if python -c "import talib; print('✅ TA-Lib version:', talib.__version__)"; then
+        # ایجاد لینک سمبلیک برای دسترسی آسان
+        sudo ln -sf "$INSTALL_DIR/venv/bin/python" /usr/local/bin/talib-python
+        sudo ln -sf "$INSTALL_DIR/venv/bin/pip" /usr/local/bin/talib-pip
+        
+        echo -e "\n🎉 TA-Lib installed successfully!"
+        echo "Virtual environment: $INSTALL_DIR/venv"
+        echo "Activate with: source $INSTALL_DIR/venv/bin/activate"
+        echo "Or use directly: talib-python -c \"import talib; print(talib.__version__)\""
+    else
+        echo "❌ TA-Lib installation verification failed"
+        exit 1
+    fi
+    
+    # پاکسازی
+    rm -f "$INSTALL_DIR/ta-lib-src.tar.gz"
+} >> "$LOG_FILE" 2>&1
+
+exit 0
+
+
+
 
 
 
