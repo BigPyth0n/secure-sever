@@ -174,11 +174,11 @@ apt install -y ipset iptables
 curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | sudo bash
 if apt install -y crowdsec crowdsec-firewall-bouncer-iptables; then
     if [ -f /usr/bin/cscli ]; then
-        # ایجاد کاربر crowdsec اگه وجود نداره
+        # ایجاد کاربر crowdsec
         if ! id crowdsec >/dev/null 2>&1; then
             sudo adduser --system --group --no-create-home crowdsec
         fi
-        # تنظیم فایل اصلی config.yaml
+        # تنظیم فایل اصلی
         cat <<EOL > /etc/crowdsec/config.yaml
 api:
   server:
@@ -238,7 +238,7 @@ EOL
                         fi
                     else
                         send_telegram "⚠️ CrowdSec نصب شد اما داشبورد نصب نشد (ادامه فرآیند)"
-                            SERVICE_STATUS["crowdsec"]="خطا"
+                        SERVICE_STATUS["crowdsec"]="خطا"
                     fi
                 else
                     send_telegram "❌ نصب داشبورد CrowdSec با خطا مواجه شد (ادامه فرآیند)"
