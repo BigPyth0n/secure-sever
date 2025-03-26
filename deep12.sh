@@ -208,9 +208,6 @@ check_success "تنظیم فایروال"
 #===============================================================================
 # نصب و تنظیم CrowdSec و Metabase
 #===============================================================================
-# =============================================
-# نصب و تنظیم CrowdSec و Metabase
-# =============================================
 echo "🔄 نصب CrowdSec و داشبورد Metabase..."
 # نصب پیش‌نیازها
 apt install -y ipset iptables curl
@@ -218,12 +215,24 @@ apt install -y ipset iptables curl
 if ! id crowdsec >/dev/null 2>&1; then
     sudo adduser --system --group --no-create-home crowdsec
 fi
+# تنظیم فایل اصلی CrowdSec قبل از نصب
+sudo mkdir -p /etc/crowdsec /var/lib/crowdsec/data
+sudo bash -c 'cat <<EOL > /etc/crowdsec/config.yaml
+api:
+  server:
+    listen_uri: 0.0.0.0:'"$CROWDSEC_DASHBOARD_PORT"'
+    profiles_path: /etc/crowdsec/profiles.yaml
+db_config:
+  type: sqlite
+  db_path: /var/lib/crowdsec/data/crowdsec.db
+EOL'
 # نصب CrowdSec و bouncer
 curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | sudo bash
-if apt install -y crowdsec crowdsec-firewall-bouncer-iptables; then
-    if [ -f /usr/bin/cscli ]; then
-        # تنظیم فایل اصلی CrowdSec
-        sudo bash -c 'cat <<EOL > /etc/crowdsec/config.yaml
+# نصب با تأیید فایل تنظیمات
+sudo DEBIAN_FRONTEND=noninteractive apt install -y crowdsec crowdsec-firewall-bouncer-iptables
+if [ $? -eq 0 ] && [ -f /usr/bin/cscli ]; then
+    # تنظیم دوباره فایل‌ها بعد از نصب
+    sudo bash -c 'cat <<EOL > /etc/crowdsec/config.yaml
 api:
   server:
     listen_uri: 0.0.0.0:'"$CROWDSEC_DASHBOARD_PORT"'
@@ -232,8 +241,7 @@ db_config:
   type: sqlite
   db_path: /var/lib/crowdsec/data/crowdsec.db
 EOL'
-        # تنظیم فایل محلی
-        sudo bash -c 'cat <<EOL > /etc/crowdsec/config.yaml.local
+    sudo bash -c 'cat <<EOL > /etc/crowdsec/config.yaml.local
 api:
   server:
     listen_uri: 0.0.0.0:'"$CROWDSEC_DASHBOARD_PORT"'
@@ -242,11 +250,33 @@ db_config:
   type: sqlite
   db_path: /var/lib/crowdsec/data/crowdsec.db
 EOL'
-        sudo chown -R crowdsec:crowdsec /etc/crowdsec /var/lib/crowdsec/data
-        sudo chmod -R 755 /var/lib/crowdsec/data
-        systemctl enable --now crowdsec
-        systemctl restart crowdsec
-        if systemctl is-active crowdsec >/dev/null 2>&1; then
+    sudo chown -R crowdsec:crowdsec /etc/crowdsec /var/lib/crowdsec/data
+    sudo chmod -R 755 /var/lib/crowdsec/data
+    systemctl enable --now crowdsec
+    systemctl restart crowdsec
+    if systemctl is-active crowdsec >/dev/null 2>&1; then
+        if systemctl is-active docker >/dev/null 2>&1; then
+            echo "نصب داشبورد CrowdSec شروع می‌شود (غیرتعاملی، حداکثر 5 دقیقه)..."
+            timeout 300 cscli dashboard setup --listen 0.0.0.0:"$CROWDSEC_DASHBOARD_PORT" --yes
+            if [ $? -eq 0 ]; then
+                sleep 10
+                if docker ps -a | grep -q metabase; then
+                    if docker ps | grep -q metabase; then
+                        check_success "نصب و راه‌اندازی CrowdSec و داشبورد" "crowdsec"
+                    else
+                        send_telegram "⚠️ CrowdSec نصب شد اما داشبورد اجرا نشد (ادامه فرآیند)"
+                        SERVICE_STATUS["crowdsec"]="خطا"
+                    fi
+                else
+                    send_telegram "⚠️ CrowdSec نصب شد اما داشبورد نصب نشد (ادامه فرآیند)"
+                    SERVICE_STATUS["crowdsec"]="خطا"
+                fi
+            else
+                send_telegram "❌ نصب داشبورد CrowdSec با خطا مواجه شد (ادامه فرآیند)"
+                SERVICE_STATUS["crowdsec"]="خطا"
+            fi
+        else
+            systemctl start docker
             if systemctl is-active docker >/dev/null 2>&1; then
                 echo "نصب داشبورد CrowdSec شروع می‌شود (غیرتعاملی، حداکثر 5 دقیقه)..."
                 timeout 300 cscli dashboard setup --listen 0.0.0.0:"$CROWDSEC_DASHBOARD_PORT" --yes
@@ -268,38 +298,12 @@ EOL'
                     SERVICE_STATUS["crowdsec"]="خطا"
                 fi
             else
-                systemctl start docker
-                if systemctl is-active docker >/dev/null 2>&1; then
-                    echo "نصب داشبورد CrowdSec شروع می‌شود (غیرتعاملی، حداکثر 5 دقیقه)..."
-                    timeout 300 cscli dashboard setup --listen 0.0.0.0:"$CROWDSEC_DASHBOARD_PORT" --yes
-                    if [ $? -eq 0 ]; then
-                        sleep 10
-                        if docker ps -a | grep -q metabase; then
-                            if docker ps | grep -q metabase; then
-                                check_success "نصب و راه‌اندازی CrowdSec و داشبورد" "crowdsec"
-                            else
-                                send_telegram "⚠️ CrowdSec نصب شد اما داشبورد اجرا نشد (ادامه فرآیند)"
-                                SERVICE_STATUS["crowdsec"]="خطا"
-                            fi
-                        else
-                            send_telegram "⚠️ CrowdSec نصب شد اما داشبورد نصب نشد (ادامه فرآیند)"
-                            SERVICE_STATUS["crowdsec"]="خطا"
-                        fi
-                    else
-                        send_telegram "❌ نصب داشبورد CrowdSec با خطا مواجه شد (ادامه فرآیند)"
-                        SERVICE_STATUS["crowdsec"]="خطا"
-                    fi
-                else
-                    send_telegram "❌ Docker فعال نشد، نصب داشبورد CrowdSec رد شد (ادامه فرآیند)"
-                    SERVICE_STATUS["crowdsec"]="نصب ناقص"
-                fi
+                send_telegram "❌ Docker فعال نشد، نصب داشبورد CrowdSec رد شد (ادامه فرآیند)"
+                SERVICE_STATUS["crowdsec"]="نصب ناقص"
             fi
-        else
-            send_telegram "❌ سرویس CrowdSec اجرا نشد (ادامه فرآیند)"
-            SERVICE_STATUS["crowdsec"]="خطا"
         fi
     else
-        send_telegram "❌ نصب CrowdSec شکست خورد، cscli پیدا نشد (ادامه فرآیند)"
+        send_telegram "❌ سرویس CrowdSec اجرا نشد (ادامه فرآیند)"
         SERVICE_STATUS["crowdsec"]="خطا"
     fi
 else
