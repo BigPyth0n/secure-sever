@@ -90,9 +90,7 @@ EOL
 systemctl restart sshd
 check_success "تنظیمات SSH برای کاربر $NEW_USER"
 
-# =============================================
 # نصب Docker و Docker Compose
-# =============================================
 echo "🔄 نصب Docker و Docker Compose..."
 apt install -y apt-transport-https ca-certificates curl software-properties-common
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
@@ -104,9 +102,7 @@ curl -L "https://github.com/docker/compose/releases/latest/download/docker-compo
 chmod +x /usr/local/bin/docker-compose
 check_success "نصب Docker و Docker Compose" "docker"
 
-# =============================================
-# نصب و تنظیم Portainer
-# =============================================
+# نصب Portainer
 echo "🔄 نصب Portainer..."
 docker volume create portainer_data
 docker run -d --name portainer -p "$PORTAINER_PORT:9000" \
@@ -116,9 +112,7 @@ docker run -d --name portainer -p "$PORTAINER_PORT:9000" \
     portainer/portainer-ce:latest
 check_success "نصب و راه‌اندازی Portainer" "portainer"
 
-# =============================================
-# نصب و تنظیم Nginx Proxy Manager
-# =============================================
+# نصب Nginx Proxy Manager
 echo "🔄 نصب Nginx Proxy Manager..."
 mkdir -p /var/docker/nginx-proxy-manager/{data,letsencrypt}
 docker run -d \
@@ -132,9 +126,7 @@ docker run -d \
     jc21/nginx-proxy-manager:latest
 check_success "نصب و راه‌اندازی Nginx Proxy Manager" "nginx-proxy-manager"
 
-# =============================================
-# نصب و تنظیم Netdata
-# =============================================
+# نصب Netdata
 echo "🔄 نصب Netdata..."
 sudo apt purge -y netdata netdata-core netdata-web netdata-plugins-bash
 sudo rm -rf /etc/netdata /usr/share/netdata /var/lib/netdata
@@ -155,9 +147,7 @@ sudo chmod -R 0755 /usr/share/netdata/web
 sudo systemctl restart netdata
 check_success "نصب و راه‌اندازی Netdata" "netdata"
 
-# =============================================
 # تنظیم فایروال
-# =============================================
 echo "🔄 تنظیم فایروال..."
 apt install -y ufw
 ufw default deny incoming
@@ -168,19 +158,15 @@ done
 ufw --force enable
 check_success "تنظیم فایروال"
 
-
-
-
-
-# نصب و تنظیم CrowdSec
-echo "🔄 نصب CrowdSec..."
+# نصب و تنظیم CrowdSec و Metabase
+echo "🔄 نصب CrowdSec و داشبورد Metabase..."
 # نصب پیش‌نیازها
 apt install -y ipset iptables
 # نصب از مخزن رسمی
 curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | sudo bash
 if apt install -y crowdsec crowdsec-firewall-bouncer-iptables; then
     if [ -f /usr/bin/cscli ]; then
-        # تنظیمات اولیه
+        # تنظیمات اولیه CrowdSec
         cat <<EOL > /etc/crowdsec/config.yaml.local
 api:
   server:
@@ -194,33 +180,53 @@ EOL
         chmod -R 755 /var/lib/crowdsec/data
         systemctl enable --now crowdsec
         systemctl restart crowdsec
-        # چک کردن و فعال کردن Docker
-        if ! systemctl is-active docker >/dev/null 2>&1; then
-            systemctl start docker
-            if ! systemctl is-active docker >/dev/null 2>&1; then
-                send_telegram "❌ Docker فعال نشد، نصب داشبورد CrowdSec رد شد (ادامه فرآیند)"
-                SERVICE_STATUS["crowdsec"]="نصب ناقص"
-            fi
-        fi
+        # نصب داشبورد بدون تعامل
         if systemctl is-active docker >/dev/null 2>&1; then
-            echo "نصب داشبورد CrowdSec شروع می‌شود. لطفاً 'Y' را وارد کنید وقتی خواسته شد."
-            echo "انتظار برای Metabase حداکثر 5 دقیقه است. اگر گیر کرد، Ctrl+C بزنید."
-            timeout 300 cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT
-            sleep 10  # زمان اضافی برای اطمینان از بالا آمدن
-            if docker ps -a | grep -q metabase; then
-                if docker ps | grep -q metabase; then
-                    check_success "نصب و راه‌اندازی CrowdSec و داشبورد" "crowdsec"
+            echo "نصب داشبورد CrowdSec شروع می‌شود (غیرتعاملی، حداکثر 5 دقیقه)..."
+            timeout 300 cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT --yes
+            if [ $? -eq 0 ]; then
+                sleep 10  # زمان اضافی برای بالا آمدن
+                if docker ps -a | grep -q metabase; then
+                    if docker ps | grep -q metabase; then
+                        check_success "نصب و راه‌اندازی CrowdSec و داشبورد" "crowdsec"
+                    else
+                        send_telegram "⚠️ CrowdSec نصب شد اما داشبورد اجرا نشد (ادامه فرآیند)"
+                        SERVICE_STATUS["crowdsec"]="خطا"
+                    fi
                 else
-                    send_telegram "⚠️ CrowdSec نصب شد اما داشبورد اجرا نشد (ادامه فرآیند)"
+                    send_telegram "⚠️ CrowdSec نصب شد اما داشبورد نصب نشد (ادامه فرآیند)"
                     SERVICE_STATUS["crowdsec"]="خطا"
                 fi
             else
-                send_telegram "⚠️ CrowdSec نصب شد اما داشبورد نصب نشد (ادامه فرآیند)"
+                send_telegram "❌ نصب داشبورد CrowdSec با خطا مواجه شد (ادامه فرآیند)"
                 SERVICE_STATUS["crowdsec"]="خطا"
             fi
         else
-            send_telegram "⚠️ Docker فعال نیست، نصب داشبورد CrowdSec رد شد (ادامه فرآیند)"
-            SERVICE_STATUS["crowdsec"]="نصب ناقص"
+            systemctl start docker
+            if systemctl is-active docker >/dev/null 2>&1; then
+                echo "نصب داشبورد CrowdSec شروع می‌شود (غیرتعاملی، حداکثر 5 دقیقه)..."
+                timeout 300 cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT --yes
+                if [ $? -eq 0 ]; then
+                    sleep 10
+                    if docker ps -a | grep -q metabase; then
+                        if docker ps | grep -q metabase; then
+                            check_success "نصب و راه‌اندازی CrowdSec و داشبورد" "crowdsec"
+                        else
+                            send_telegram "⚠️ CrowdSec نصب شد اما داشبورد اجرا نشد (ادامه فرآیند)"
+                            SERVICE_STATUS["crowdsec"]="خطا"
+                        fi
+                    else
+                        send_telegram "⚠️ CrowdSec نصب شد اما داشبورد نصب نشد (ادامه فرآیند)"
+                        SERVICE_STATUS["crowdsec"]="خطا"
+                    fi
+                else
+                    send_telegram "❌ نصب داشبورد CrowdSec با خطا مواجه شد (ادامه فرآیند)"
+                    SERVICE_STATUS["crowdsec"]="خطا"
+                fi
+            else
+                send_telegram "❌ Docker فعال نشد، نصب داشبورد CrowdSec رد شد (ادامه فرآیند)"
+                SERVICE_STATUS["crowdsec"]="نصب ناقص"
+            fi
         fi
     else
         send_telegram "❌ نصب CrowdSec شکست خورد، cscli پیدا نشد (ادامه فرآیند)"
@@ -231,23 +237,7 @@ else
     SERVICE_STATUS["crowdsec"]="خطا"
 fi
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# =============================================
-# نصب و تنظیم Code-Server
-# =============================================
+# نصب Code-Server
 echo "🔄 نصب Code-Server..."
 curl -fsSL https://code-server.dev/install.sh | sh
 sudo setcap cap_net_bind_service=+ep /usr/lib/code-server/lib/node
@@ -268,9 +258,7 @@ else
     SERVICE_STATUS["code-server"]="خطا"
 fi
 
-# =============================================
 # نصب ابزارهای جانبی
-# =============================================
 echo "🔄 نصب ابزارهای جانبی..."
 apt install -y \
     wget curl net-tools iperf3 \
@@ -283,9 +271,7 @@ apt install -y \
 systemctl enable --now auditd
 check_success "نصب ابزارهای جانبی"
 
-# =============================================
-# تنظیمات امنیتی نهایی
-# =============================================
+# تنظیمات امنیتی
 echo "🔄 اعمال تنظیمات امنیتی..."
 cat <<EOL >> /etc/sysctl.conf
 net.ipv4.tcp_syncookies=1
@@ -303,50 +289,32 @@ EOL
 sysctl -p
 check_success "تنظیمات امنیتی اعمال شد"
 
-# =============================================
-# ریستارت نهایی سرویس‌ها
-# =============================================
+# ریستارت سرویس‌ها
 echo "🔄 ریستارت نهایی سرویس‌ها..."
 services_to_restart=(
     "docker"
     "code-server@$NEW_USER.service"
     "netdata"
     "crowdsec"
-)
-
-containers_to_restart=(
     "portainer"
     "nginx-proxy-manager"
-    "metabase"  # تغییر از crowdsec-metabase به metabase
+    "crowdsec-metabase"
 )
-
 RESTART_REPORT=""
-
-# ریستارت سرویس‌های سیستمی
 for service in "${services_to_restart[@]}"; do
     if systemctl is-active "$service" >/dev/null 2>&1; then
         sudo systemctl restart "$service"
+        RESTART_REPORT+="   - **$service**: ✅ ریستارت شد\n"
+    elif docker ps -q -f name="$service" >/dev/null 2>&1; then
+        sudo docker restart "$service"
         RESTART_REPORT+="   - **$service**: ✅ ریستارت شد\n"
     else
         RESTART_REPORT+="   - **$service**: ❌ یافت نشد\n"
     fi
 done
-
-# ریستارت کانتینرهای داکر
-for container in "${containers_to_restart[@]}"; do
-    if docker ps -a | grep -q "$container"; then
-        sudo docker restart "$container"
-        RESTART_REPORT+="   - **$container**: ✅ ریستارت شد\n"
-    else
-        RESTART_REPORT+="   - **$container**: ❌ یافت نشد\n"
-    fi
-done
-
 send_telegram "🔄 **ریستارت نهایی سرویس‌ها:**\n$RESTART_REPORT"
 
-# =============================================
 # گزارش نهایی
-# =============================================
 SERVER_IP=$(curl -s -4 icanhazip.com)
 LOCATION=$(curl -s http://ip-api.com/line/$SERVER_IP?fields=country,city,isp)
 
