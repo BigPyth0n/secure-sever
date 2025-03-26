@@ -190,7 +190,7 @@ if [ -f /usr/bin/cscli ]; then
     chmod -R 755 /var/lib/crowdsec/data
     systemctl enable --now crowdsec
     systemctl restart crowdsec
-    # چک کردن Docker قبل از نصب داشبورد
+    # نصب داشبورد با تعامل کاربر و محدودیت زمانی
     if docker ps >/dev/null 2>&1; then
         echo "نصب داشبورد CrowdSec شروع می‌شود. لطفاً وقتی از شما تأیید خواسته شد، 'Y' را وارد کنید."
         echo "در حال انتظار برای بالا آمدن Metabase (حداکثر 5 دقیقه). اگر گیر کرد، با Ctrl+C خارج شوید و اسکریپت ادامه می‌دهد."
