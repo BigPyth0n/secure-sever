@@ -240,9 +240,9 @@ else
     send_telegram "❌ خطا: نصب Wazuh شکست خورد. بررسی کنید: apt install wazuh-manager"
     SERVICE_STATUS["wazuh"]="خطا"
 fi
-# باز کردن پورت 9200 توی فایروال
+# باز کردن پورت‌های لازم
 sudo ufw allow 9200/tcp
-
+sudo ufw allow 5601/tcp
 
 
 
