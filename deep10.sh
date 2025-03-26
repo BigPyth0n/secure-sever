@@ -171,12 +171,17 @@ check_success "تنظیم فایروال"
 # =============================================
 # نصب و تنظیم CrowdSec
 # =============================================
-# نصب CrowdSec
-echo "🔄 نصب CrowdSec..."
+# نصب و تنظیم CrowdSec با روش تضمینی
+echo "🔄 نصب CrowdSec با روش تضمینی..."
 curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | sudo bash
 sudo apt install -y crowdsec crowdsec-firewall-bouncer-iptables
 
-# تنظیمات اولیه
+# ایجاد کاربر و گروه اگر وجود ندارند
+if ! id -u crowdsec >/dev/null 2>&1; then
+    sudo adduser --system --group --disabled-password --shell /bin/false crowdsec
+fi
+
+# تنظیمات اصلی
 sudo tee /etc/crowdsec/config.yaml.local >/dev/null <<EOL
 api:
   server:
@@ -189,24 +194,46 @@ EOL
 
 # تنظیم مجوزها
 sudo chown -R crowdsec:crowdsec /etc/crowdsec
+sudo chown -R crowdsec:crowdsec /var/lib/crowdsec/data
 sudo chmod -R 755 /var/lib/crowdsec/data
+
+# راه‌اندازی سرویس
 sudo systemctl enable --now crowdsec
 sudo systemctl restart crowdsec
 
-# نصب خودکار داشبورد بدون نیاز به تأیید
-echo "🔄 نصب خودکار CrowdSec Dashboard..."
-yes | sudo cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT >/dev/null 2>&1 &
+# نصب و راه‌اندازی Metabase با روش تضمینی
+echo "🔄 نصب Metabase با روش تضمینی..."
+sudo docker rm -f metabase 2>/dev/null || true
 
-# انتظار برای راه‌اندازی Metabase
-echo "⏳ در حال راه‌اندازی Metabase (حداکثر 2 دقیقه)..."
-timeout 120 bash -c 'while ! docker ps | grep -q metabase; do sleep 5; done'
+# پاسخ خودکار به prompt و نصب داشبورد
+yes | sudo cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT >/dev/null 2>&1
 
-# بررسی نهایی
-if docker ps | grep -q metabase; then
-    check_success "نصب و راه‌اندازی CrowdSec و داشبورد" "crowdsec"
+# انتظار هوشمند برای راه‌اندازی Metabase
+echo "⏳ در حال راه‌اندازی Metabase (بررسی هوشمند)..."
+for i in {1..30}; do
+    if docker ps | grep -q metabase; then
+        if curl -sSf http://localhost:$CROWDSEC_DASHBOARD_PORT >/dev/null; then
+            break
+        fi
+    fi
+    sleep 5
+done
+
+# بررسی نهایی با معیارهای دقیق
+if docker ps | grep -q metabase && \
+   curl -sSf http://localhost:$CROWDSEC_DASHBOARD_PORT >/dev/null; then
+    check_success "نصب و راه‌اندازی CrowdSec و Metabase با موفقیت" "crowdsec"
 else
-    send_telegram "⚠️ CrowdSec نصب شد اما داشبورد اجرا نشد (ادامه فرآیند)"
-    SERVICE_STATUS["crowdsec"]="خطا"
+    # تلاش نهایی در صورت شکست
+    sudo docker rm -f metabase 2>/dev/null
+    sudo cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT --force
+    
+    if docker ps | grep -q metabase; then
+        check_success "نصب CrowdSec و Metabase پس از تلاش مجدد" "crowdsec"
+    else
+        send_telegram "⚠️ خطای شدید: CrowdSec Dashboard راه‌اندازی نشد. نیاز به بررسی دستی دارد"
+        SERVICE_STATUS["crowdsec"]="خطای بحرانی"
+    fi
 fi
 
 # =============================================
