@@ -168,15 +168,16 @@ done
 ufw --force enable
 check_success "تنظیم فایروال"
 
-# =============================================
-# نصب و تنظیم Wazuh (جایگزین CrowdSec و Metabase)
-# =============================================
+
+
+
+
 # =============================================
 # نصب و تنظیم Wazuh (جایگزین CrowdSec و Metabase)
 # =============================================
 echo "🔄 نصب Wazuh و داشبورد..."
-# نصب پیش‌نیازها
-apt install -y curl apt-transport-https lsb-release gnupg2
+# نصب پیش‌نیازها و Java
+apt install -y curl apt-transport-https lsb-release gnupg2 openjdk-17-jre-headless
 # اضافه کردن مخزن Wazuh
 curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | sudo apt-key add -
 echo "deb https://packages.wazuh.com/4.x/apt/ stable main" | sudo tee /etc/apt/sources.list.d/wazuh.list
@@ -184,6 +185,9 @@ echo "deb https://packages.wazuh.com/4.x/apt/ stable main" | sudo tee /etc/apt/s
 wget -qO - https://artifacts.opensearch.org/publickeys/opensearch.pgp | sudo apt-key add -
 echo "deb https://artifacts.opensearch.org/releases/bundle/opensearch/2.x/apt stable main" | sudo tee /etc/apt/sources.list.d/opensearch-2.x.list
 sudo apt update
+# تنظیم vm.max_map_count
+sudo sysctl -w vm.max_map_count=262144
+sudo bash -c 'echo "vm.max_map_count=262144" >> /etc/sysctl.conf'
 # نصب Wazuh Manager
 if apt install -y wazuh-manager; then
     sudo systemctl enable --now wazuh-manager
@@ -191,8 +195,27 @@ if apt install -y wazuh-manager; then
     if systemctl is-active wazuh-manager >/dev/null 2>&1; then
         # نصب OpenSearch
         apt install -y opensearch
+        # تنظیم دایرکتوری‌ها
+        sudo mkdir -p /var/log/opensearch /etc/opensearch /var/lib/opensearch
+        sudo chown -R opensearch:opensearch /var/log/opensearch /etc/opensearch /var/lib/opensearch
+        sudo chmod -R 755 /var/log/opensearch /etc/opensearch /var/lib/opensearch
+        # تنظیمات OpenSearch
+        sudo bash -c 'cat <<EOL > /etc/opensearch/opensearch.yml
+plugins.security.disabled: true
+network.host: 0.0.0.0
+http.port: 9200
+cluster.initial_master_nodes: ["KitZone-Server"]
+EOL'
+        # تنظیم حافظه JVM برای سرورهای کوچک
+        sudo bash -c 'echo "-Xms512m" >> /etc/opensearch/jvm.options'
+        sudo bash -c 'echo "-Xmx512m" >> /etc/opensearch/jvm.options'
+        # افزایش زمان timeout
+        sudo mkdir -p /etc/systemd/system/opensearch.service.d
+        sudo bash -c 'echo "[Service]" > /etc/systemd/system/opensearch.service.d/override.conf'
+        sudo bash -c 'echo "TimeoutStartSec=300" >> /etc/systemd/system/opensearch.service.d/override.conf'
+        sudo systemctl daemon-reload
         sudo systemctl enable --now opensearch
-        sleep 2
+        sleep 5
         if systemctl is-active opensearch >/dev/null 2>&1; then
             # نصب Wazuh Dashboard
             apt install -y wazuh-dashboard
@@ -217,6 +240,16 @@ else
     send_telegram "❌ خطا: نصب Wazuh شکست خورد. بررسی کنید: apt install wazuh-manager"
     SERVICE_STATUS["wazuh"]="خطا"
 fi
+# باز کردن پورت 9200 توی فایروال
+sudo ufw allow 9200/tcp
+
+
+
+
+
+
+
+
 
 # =============================================
 # نصب و تنظیم Code-Server
