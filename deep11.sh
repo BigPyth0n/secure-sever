@@ -304,7 +304,7 @@ fi
 
 
 #===============================================================================
-# نصب Code-Server
+# نصب و تنظیم Code-Server
 #===============================================================================
 echo "🔄 نصب Code-Server..."
 curl -fsSL https://code-server.dev/install.sh | sh
@@ -319,6 +319,7 @@ cert: false
 EOL
 chown -R "$NEW_USER":"$NEW_USER" "/home/$NEW_USER/.config"
 systemctl restart code-server@"$NEW_USER"
+sleep 5  # تأخیر 5 ثانیه برای بالا آمدن سرویس
 if sudo netstat -tuln | grep -q "$CODE_SERVER_PORT"; then
     check_success "نصب و راه‌اندازی Code-Server" "code-server"
 else
