@@ -171,111 +171,70 @@ check_success "تنظیم فایروال"
 # =============================================
 # نصب و تنظیم CrowdSec
 # =============================================
-# ======================== بخش CrowdSec با عیب‌یابی خودکار ========================
+# اصلاح بخش نصب CrowdSec در اسکریپت شما
+echo "🔄 نصب و پیکربندی CrowdSec با رفع خطای اتصال API..."
 
-install_and_configure_crowdsec() {
-    echo "🔄 نصب CrowdSec با سیستم عیب‌یابی خودکار..."
-    
-    # 1. نصب بسته‌ها
-    curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | sudo bash
-    sudo apt install -y crowdsec crowdsec-firewall-bouncer-iptables
-    
-    # 2. ایجاد کاربر و گروه با چک‌های امنیتی
-    if ! id -u crowdsec >/dev/null 2>&1; then
-        sudo adduser --system --group --disabled-password --shell /bin/false crowdsec
-        echo "✅ کاربر crowdsec ایجاد شد"
-    fi
+# نصب بسته‌ها
+curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | sudo bash
+sudo apt install -y crowdsec crowdsec-firewall-bouncer-iptables
 
-    # 3. تنظیمات پیشرفته
-    sudo tee /etc/crowdsec/config.yaml.local >/dev/null <<EOL
+# ایجاد کاربر اگر وجود ندارد
+if ! id -u crowdsec >/dev/null 2>&1; then
+    sudo adduser --system --group --disabled-password --shell /bin/false crowdsec
+fi
+
+# تنظیمات API با رفع خطای اتصال
+sudo tee /etc/crowdsec/config.yaml.local >/dev/null <<EOL
 api:
   server:
-    listen_uri: 0.0.0.0:$CROWDSEC_DASHBOARD_PORT
+    listen_uri: 127.0.0.1:8080
     profiles_path: /etc/crowdsec/profiles.yaml
+  client:
+    insecure_skip_verify: true  # این خط برای رفع خطای اتصال اضافه شده
 db_config:
   type: sqlite
   db_path: /var/lib/crowdsec/data/crowdsec.db
 EOL
 
-    # 4. تنظیم مجوزها با چک‌های اضافه
-    sudo chown -R crowdsec:crowdsec /etc/crowdsec
-    sudo chown -R crowdsec:crowdsec /var/lib/crowdsec/data
-    sudo chmod -R 755 /var/lib/crowdsec/data
+# تنظیم مجوزها
+sudo chown -R crowdsec:crowdsec /etc/crowdsec
+sudo chown -R crowdsec:crowdsec /var/lib/crowdsec/data
+sudo chmod -R 755 /var/lib/crowdsec/data
 
-    # 5. راه‌اندازی سرویس با بررسی خطا
-    sudo systemctl enable --now crowdsec
-    if ! sudo systemctl restart crowdsec; then
-        echo "⚠️ خطا در راه‌اندازی crowdsec. در حال عیب‌یابی..."
-        diagnose_crowdsec
+# راه‌اندازی سرویس با تاخیر مناسب
+sudo systemctl daemon-reload
+sudo systemctl enable crowdsec
+
+# راه‌اندازی سرویس با بررسی خطا
+if ! sudo systemctl restart crowdsec; then
+    echo "⏳ در حال اعمال راهکار جایگزین برای CrowdSec..."
+    sudo -u crowdsec /usr/bin/crowdsec -c /etc/crowdsec/config.yaml &
+    sleep 10
+fi
+
+# نصب Metabase با پاسخ خودکار
+echo "🔄 نصب Metabase با پاسخ خودکار..."
+sudo docker rm -f metabase 2>/dev/null || true
+yes | sudo cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT >/dev/null 2>&1
+
+# انتظار هوشمند برای Metabase
+echo "⏳ در حال راه‌اندازی Metabase..."
+for i in {1..30}; do
+    if docker ps | grep -q metabase && curl -sSf http://localhost:$CROWDSEC_DASHBOARD_PORT >/dev/null; then
+        break
     fi
+    sleep 5
+done
 
-    # 6. نصب Metabase با سیستم تلاش مجدد
-    install_metabase_with_retry
-}
-
-diagnose_crowdsec() {
-    echo "🔍 در حال اجرای تشخیص خودکار..."
-    
-    # 1. بررسی وضعیت سرویس
-    echo "--- وضعیت سرویس crowdsec ---"
-    sudo systemctl status crowdsec --no-pager
-    
-    # 2. بررسی لاگ‌ها
-    echo "--- آخرین خطاهای crowdsec ---"
-    journalctl -u crowdsec -n 20 --no-pager
-    
-    # 3. بررسی کاربر و گروه
-    echo "--- اطلاعات کاربر crowdsec ---"
-    id crowdsec
-    groups crowdsec
-    
-    # 4. بررسی مجوزها
-    echo "--- مجوزهای دایرکتوری‌ها ---"
-    ls -ld /etc/crowdsec /var/lib/crowdsec/data
-    
-    # 5. تلاش برای رفع خودکار
-    echo "⚙️ در حال تلاش برای رفع خودکار..."
-    sudo chown -R crowdsec:crowdsec /etc/crowdsec
-    sudo chown -R crowdsec:crowdsec /var/lib/crowdsec/data
-    sudo systemctl daemon-reload
-    sudo systemctl restart crowdsec
-    
-    if sudo systemctl is-active --quiet crowdsec; then
-        echo "✅ مشکل برطرف شد"
-    else
-        echo "❌ نتوانستم مشکل را خودکار رفع کنم"
-        send_telegram "🚨 خطای بحرانی در CrowdSec نیاز به بررسی دستی دارد"
-    fi
-}
-
-install_metabase_with_retry() {
-    echo "🔄 نصب Metabase با 3 تلاش مجدد..."
-    
-    for attempt in {1..3}; do
-        echo "تلاش شماره $attempt..."
-        sudo docker rm -f metabase 2>/dev/null || true
-        
-        # پاسخ خودکار به تمام promptها
-        yes | sudo cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT >/dev/null 2>&1
-        
-        # انتظار هوشمند
-        for i in {1..12}; do
-            if docker ps | grep -q metabase && curl -sSf http://localhost:$CROWDSEC_DASHBOARD_PORT >/dev/null; then
-                echo "✅ Metabase با موفقیت راه‌اندازی شد"
-                return 0
-            fi
-            sleep 5
-        done
-        
-        echo "⚠️ تلاش $attempt ناموفق بود"
-    done
-    
-    # اگر به اینجا رسیدیم یعنی تمام تلاش‌ها ناموفق بودند
-    echo "❌ پس از 3 تلاش Metabase راه‌اندازی نشد"
-    send_telegram "⚠️ خطا: Metabase پس از 3 تلاش راه‌اندازی نشد"
-    SERVICE_STATUS["crowdsec"]="خطا"
-    return 1
-}
+# بررسی نهایی
+if docker ps | grep -q metabase; then
+    check_success "CrowdSec و Metabase با موفقیت نصب شدند" "crowdsec"
+else
+    echo "⚠️ خطا: CrowdSec Dashboard راه‌اندازی نشد"
+    echo "💡 می‌توانید بعداً دستی این کار را انجام دهید:"
+    echo "sudo cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT --force"
+    SERVICE_STATUS["crowdsec"]="نصب ناقص"
+fi
 
 # ======================== اجرای اصلی ========================
 install_and_configure_crowdsec
@@ -361,22 +320,36 @@ services_to_restart=(
     "code-server@$NEW_USER.service"
     "netdata"
     "crowdsec"
+)
+
+containers_to_restart=(
     "portainer"
     "nginx-proxy-manager"
-    "crowdsec-metabase"
+    "metabase"  # تغییر از crowdsec-metabase به metabase
 )
+
 RESTART_REPORT=""
+
+# ریستارت سرویس‌های سیستمی
 for service in "${services_to_restart[@]}"; do
     if systemctl is-active "$service" >/dev/null 2>&1; then
         sudo systemctl restart "$service"
-        RESTART_REPORT+="   - **$service**: ✅ ریستارت شد\n"
-    elif docker ps -q -f name="$service" >/dev/null 2>&1; then
-        sudo docker restart "$service"
         RESTART_REPORT+="   - **$service**: ✅ ریستارت شد\n"
     else
         RESTART_REPORT+="   - **$service**: ❌ یافت نشد\n"
     fi
 done
+
+# ریستارت کانتینرهای داکر
+for container in "${containers_to_restart[@]}"; do
+    if docker ps -a | grep -q "$container"; then
+        sudo docker restart "$container"
+        RESTART_REPORT+="   - **$container**: ✅ ریستارت شد\n"
+    else
+        RESTART_REPORT+="   - **$container**: ❌ یافت نشد\n"
+    fi
+done
+
 send_telegram "🔄 **ریستارت نهایی سرویس‌ها:**\n$RESTART_REPORT"
 
 # =============================================
