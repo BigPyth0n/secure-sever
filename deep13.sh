@@ -171,40 +171,50 @@ check_success "تنظیم فایروال"
 # =============================================
 # نصب و تنظیم Wazuh (جایگزین CrowdSec و Metabase)
 # =============================================
+# =============================================
+# نصب و تنظیم Wazuh (جایگزین CrowdSec و Metabase)
+# =============================================
 echo "🔄 نصب Wazuh و داشبورد..."
 # نصب پیش‌نیازها
 apt install -y curl apt-transport-https lsb-release gnupg2
 # اضافه کردن مخزن Wazuh
 curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | sudo apt-key add -
 echo "deb https://packages.wazuh.com/4.x/apt/ stable main" | sudo tee /etc/apt/sources.list.d/wazuh.list
+# اضافه کردن مخزن OpenSearch
+wget -qO - https://artifacts.opensearch.org/publickeys/opensearch.pgp | sudo apt-key add -
+echo "deb https://artifacts.opensearch.org/releases/bundle/opensearch/2.x/apt stable main" | sudo tee /etc/apt/sources.list.d/opensearch-2.x.list
 sudo apt update
 # نصب Wazuh Manager
 if apt install -y wazuh-manager; then
     sudo systemctl enable --now wazuh-manager
+    sleep 2
     if systemctl is-active wazuh-manager >/dev/null 2>&1; then
-        # نصب OpenSearch Dashboards (پنل وب)
+        # نصب OpenSearch
         apt install -y opensearch
         sudo systemctl enable --now opensearch
+        sleep 2
         if systemctl is-active opensearch >/dev/null 2>&1; then
+            # نصب Wazuh Dashboard
             apt install -y wazuh-dashboard
             sudo systemctl enable --now wazuh-dashboard
+            sleep 2
             if systemctl is-active wazuh-dashboard >/dev/null 2>&1; then
                 check_success "نصب و راه‌اندازی Wazuh و داشبورد" "wazuh"
-                send_telegram "✅ Wazuh و داشبورد نصب شدند. دسترسی: http://$SERVER_IP:$WAZUH_DASHBOARD_PORT"
+                send_telegram "✅ Wazuh و داشبورد با موفقیت نصب و اجرا شدند. دسترسی: http://$SERVER_IP:$WAZUH_DASHBOARD_PORT"
             else
-                send_telegram "⚠️ Wazuh نصب شد اما داشبورد اجرا نشد (ادامه فرآیند)"
+                send_telegram "❌ خطا: Wazuh نصب شد اما داشبورد اجرا نشد. بررسی کنید: systemctl status wazuh-dashboard"
                 SERVICE_STATUS["wazuh"]="خطا"
             fi
         else
-            send_telegram "⚠️ Wazuh نصب شد اما OpenSearch اجرا نشد (ادامه فرآیند)"
+            send_telegram "❌ خطا: Wazuh نصب شد اما OpenSearch اجرا نشد. بررسی کنید: systemctl status opensearch"
             SERVICE_STATUS["wazuh"]="خطا"
         fi
     else
-        send_telegram "❌ سرویس Wazuh اجرا نشد (ادامه فرآیند)"
+        send_telegram "❌ خطا: سرویس Wazuh اجرا نشد. بررسی کنید: systemctl status wazuh-manager"
         SERVICE_STATUS["wazuh"]="خطا"
     fi
 else
-    send_telegram "❌ نصب Wazuh شکست خورد (ادامه فرآیند)"
+    send_telegram "❌ خطا: نصب Wazuh شکست خورد. بررسی کنید: apt install wazuh-manager"
     SERVICE_STATUS["wazuh"]="خطا"
 fi
 
