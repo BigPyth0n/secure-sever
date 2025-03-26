@@ -171,13 +171,13 @@ check_success "تنظیم فایروال"
 # =============================================
 # نصب و تنظیم CrowdSec
 # =============================================
+# نصب CrowdSec
 echo "🔄 نصب CrowdSec..."
-# نصب از مخزن رسمی
 curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | sudo bash
-apt install -y crowdsec crowdsec-firewall-bouncer-iptables
-if [ -f /usr/bin/cscli ]; then
-    # تنظیمات اولیه
-    cat <<EOL > /etc/crowdsec/config.yaml.local
+sudo apt install -y crowdsec crowdsec-firewall-bouncer-iptables
+
+# تنظیمات اولیه
+sudo tee /etc/crowdsec/config.yaml.local >/dev/null <<EOL
 api:
   server:
     listen_uri: 0.0.0.0:$CROWDSEC_DASHBOARD_PORT
@@ -186,32 +186,26 @@ db_config:
   type: sqlite
   db_path: /var/lib/crowdsec/data/crowdsec.db
 EOL
-    chown -R crowdsec:crowdsec /etc/crowdsec
-    chmod -R 755 /var/lib/crowdsec/data
-    systemctl enable --now crowdsec
-    systemctl restart crowdsec
-    # نصب داشبورد با تعامل کاربر و محدودیت زمانی
-    if docker ps >/dev/null 2>&1; then
-        echo "نصب داشبورد CrowdSec شروع می‌شود. لطفاً وقتی از شما تأیید خواسته شد، 'Y' را وارد کنید."
-        echo "در حال انتظار برای بالا آمدن Metabase (حداکثر 5 دقیقه). اگر گیر کرد، با Ctrl+C خارج شوید و اسکریپت ادامه می‌دهد."
-        timeout 300 cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT
-        if docker ps -a | grep -q metabase; then
-            if docker ps | grep -q metabase; then
-                check_success "نصب و راه‌اندازی CrowdSec و داشبورد" "crowdsec"
-            else
-                send_telegram "⚠️ CrowdSec نصب شد اما داشبورد (metabase) اجرا نشد (ادامه فرآیند)"
-                SERVICE_STATUS["crowdsec"]="خطا"
-            fi
-        else
-            send_telegram "⚠️ CrowdSec نصب شد اما داشبورد (metabase) نصب نشد (ادامه فرآیند)"
-            SERVICE_STATUS["crowdsec"]="خطا"
-        fi
-    else
-        send_telegram "⚠️ Docker فعال نیست، نصب داشبورد CrowdSec رد شد (ادامه فرآیند)"
-        SERVICE_STATUS["crowdsec"]="نصب ناقص"
-    fi
+
+# تنظیم مجوزها
+sudo chown -R crowdsec:crowdsec /etc/crowdsec
+sudo chmod -R 755 /var/lib/crowdsec/data
+sudo systemctl enable --now crowdsec
+sudo systemctl restart crowdsec
+
+# نصب خودکار داشبورد بدون نیاز به تأیید
+echo "🔄 نصب خودکار CrowdSec Dashboard..."
+yes | sudo cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT >/dev/null 2>&1 &
+
+# انتظار برای راه‌اندازی Metabase
+echo "⏳ در حال راه‌اندازی Metabase (حداکثر 2 دقیقه)..."
+timeout 120 bash -c 'while ! docker ps | grep -q metabase; do sleep 5; done'
+
+# بررسی نهایی
+if docker ps | grep -q metabase; then
+    check_success "نصب و راه‌اندازی CrowdSec و داشبورد" "crowdsec"
 else
-    send_telegram "⚠️ نصب CrowdSec شکست خورد، cscli پیدا نشد (ادامه فرآیند)"
+    send_telegram "⚠️ CrowdSec نصب شد اما داشبورد اجرا نشد (ادامه فرآیند)"
     SERVICE_STATUS["crowdsec"]="خطا"
 fi
 
