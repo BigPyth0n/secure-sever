@@ -97,7 +97,11 @@ sudo su - root -c "wget https://raw.githubusercontent.com/BigPyth0n/secure-sever
 sudo su - root -c "wget https://raw.githubusercontent.com/BigPyth0n/secure-sever/refs/heads/main/deep12.sh -O /tmp/deep12.sh && chmod +x /tmp/deep12.sh && /tmp/deep12.sh"
 ```
 
+## نصب و تنظیم Wazuh (جایگزین CrowdSec و Metabase)
 
+```
+sudo su - root -c "wget https://raw.githubusercontent.com/BigPyth0n/secure-sever/refs/heads/main/deep13.sh -O /tmp/deep13.sh && chmod +x /tmp/deep13.sh && /tmp/deep13.sh"
+```
 
 
 
