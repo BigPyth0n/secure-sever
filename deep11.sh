@@ -56,13 +56,22 @@ check_success() {
 
 # گزارش شروع
 send_telegram "🔥 **شروع فرآیند پیکربندی سرور** در $(date)"
+#===============================================================================
 
+
+#===============================================================================
 # 1. به‌روزرسانی سیستم
+#===============================================================================
 echo "🔄 در حال بروزرسانی سیستم..."
 apt update && apt upgrade -y
 check_success "بروزرسانی سیستم انجام شد"
+#===============================================================================
 
+
+
+#===============================================================================
 # 2. ایجاد کاربر جدید
+#===============================================================================
 echo "🔄 ایجاد کاربر $NEW_USER..."
 adduser --disabled-password --gecos "" "$NEW_USER"
 usermod -aG sudo "$NEW_USER"
@@ -73,8 +82,13 @@ chown -R "$NEW_USER":"$NEW_USER" "/home/$NEW_USER/.ssh"
 chmod 700 "/home/$NEW_USER/.ssh"
 chmod 600 "/home/$NEW_USER/.ssh/authorized_keys"
 check_success "ایجاد کاربر $NEW_USER"
+#===============================================================================
 
+
+
+#===============================================================================
 # تنظیمات SSH
+#===============================================================================
 cat <<EOL > /etc/ssh/sshd_config
 Port $SSH_PORT
 PermitRootLogin no
@@ -89,8 +103,13 @@ ClientAliveCountMax 2
 EOL
 systemctl restart sshd
 check_success "تنظیمات SSH برای کاربر $NEW_USER"
+#===============================================================================
 
+
+
+#===============================================================================
 # نصب Docker و Docker Compose
+#===============================================================================
 echo "🔄 نصب Docker و Docker Compose..."
 apt install -y apt-transport-https ca-certificates curl software-properties-common
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
@@ -101,8 +120,14 @@ usermod -aG docker "$NEW_USER"
 curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 chmod +x /usr/local/bin/docker-compose
 check_success "نصب Docker و Docker Compose" "docker"
+#===============================================================================
 
+
+
+
+#===============================================================================
 # نصب Portainer
+#===============================================================================
 echo "🔄 نصب Portainer..."
 docker volume create portainer_data
 docker run -d --name portainer -p "$PORTAINER_PORT:9000" \
@@ -125,8 +150,15 @@ docker run -d \
     --restart unless-stopped \
     jc21/nginx-proxy-manager:latest
 check_success "نصب و راه‌اندازی Nginx Proxy Manager" "nginx-proxy-manager"
+#===============================================================================
 
+
+
+
+
+#===============================================================================
 # نصب Netdata
+#===============================================================================
 echo "🔄 نصب Netdata..."
 sudo apt purge -y netdata netdata-core netdata-web netdata-plugins-bash
 sudo rm -rf /etc/netdata /usr/share/netdata /var/lib/netdata
@@ -146,8 +178,14 @@ sudo chown -R netdata:netdata /usr/share/netdata/web
 sudo chmod -R 0755 /usr/share/netdata/web
 sudo systemctl restart netdata
 check_success "نصب و راه‌اندازی Netdata" "netdata"
+#===============================================================================
 
+
+
+
+#===============================================================================
 # تنظیم فایروال
+#===============================================================================
 echo "🔄 تنظیم فایروال..."
 apt install -y ufw
 ufw default deny incoming
@@ -157,6 +195,7 @@ for port in "${PORTS_TO_OPEN[@]}"; do
 done
 ufw --force enable
 check_success "تنظیم فایروال"
+#===============================================================================
 
 
 
@@ -166,9 +205,9 @@ check_success "تنظیم فایروال"
 
 
 
-
-# ========================================================
+#===============================================================================
 # نصب و تنظیم CrowdSec و Metabase
+#===============================================================================
 echo "🔄 نصب CrowdSec و داشبورد Metabase..."
 apt install -y ipset iptables
 curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | sudo bash
@@ -264,8 +303,9 @@ fi
 
 
 
-
+#===============================================================================
 # نصب Code-Server
+#===============================================================================
 echo "🔄 نصب Code-Server..."
 curl -fsSL https://code-server.dev/install.sh | sh
 sudo setcap cap_net_bind_service=+ep /usr/lib/code-server/lib/node
@@ -285,8 +325,13 @@ else
     send_telegram "⚠️ Code-Server نصب شد اما روی پورت $CODE_SERVER_PORT اجرا نشد (ادامه فرآیند)"
     SERVICE_STATUS["code-server"]="خطا"
 fi
+#===============================================================================
 
+
+
+#===============================================================================
 # نصب ابزارهای جانبی
+#===============================================================================
 echo "🔄 نصب ابزارهای جانبی..."
 apt install -y \
     wget curl net-tools iperf3 \
@@ -298,8 +343,13 @@ apt install -y \
     python3-pip python3-venv python3-dev
 systemctl enable --now auditd
 check_success "نصب ابزارهای جانبی"
+#===============================================================================
 
+
+
+#===============================================================================
 # تنظیمات امنیتی
+#===============================================================================
 echo "🔄 اعمال تنظیمات امنیتی..."
 cat <<EOL >> /etc/sysctl.conf
 net.ipv4.tcp_syncookies=1
@@ -317,32 +367,54 @@ EOL
 sysctl -p
 check_success "تنظیمات امنیتی اعمال شد"
 
-# ریستارت سرویس‌ها
+
+
+
+#======================================================
+# ریستارت نهایی سرویس‌ها
+#======================================================
+
 echo "🔄 ریستارت نهایی سرویس‌ها..."
-services_to_restart=(
+systemd_services=(
     "docker"
     "code-server@$NEW_USER.service"
     "netdata"
     "crowdsec"
+)
+docker_containers=(
     "portainer"
     "nginx-proxy-manager"
-    "crowdsec-metabase"
+    "metabase"  # تغییر از crowdsec-metabase به metabase
 )
 RESTART_REPORT=""
-for service in "${services_to_restart[@]}"; do
+# ریستارت سرویس‌های systemd
+for service in "${systemd_services[@]}"; do
     if systemctl is-active "$service" >/dev/null 2>&1; then
         sudo systemctl restart "$service"
-        RESTART_REPORT+="   - **$service**: ✅ ریستارت شد\n"
-    elif docker ps -q -f name="$service" >/dev/null 2>&1; then
-        sudo docker restart "$service"
         RESTART_REPORT+="   - **$service**: ✅ ریستارت شد\n"
     else
         RESTART_REPORT+="   - **$service**: ❌ یافت نشد\n"
     fi
 done
+# ریستارت کانتینرهای Docker
+for container in "${docker_containers[@]}"; do
+    if docker ps -q -f name="$container" >/dev/null 2>&1; then
+        sudo docker restart "$container"
+        RESTART_REPORT+="   - **$container**: ✅ ریستارت شد\n"
+    else
+        RESTART_REPORT+="   - **$container**: ❌ یافت نشد\n"
+    fi
+done
 send_telegram "🔄 **ریستارت نهایی سرویس‌ها:**\n$RESTART_REPORT"
+#===============================================================================
 
+
+
+
+
+#===============================================================================
 # گزارش نهایی
+#===============================================================================
 SERVER_IP=$(curl -s -4 icanhazip.com)
 LOCATION=$(curl -s http://ip-api.com/line/$SERVER_IP?fields=country,city,isp)
 
