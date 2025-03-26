@@ -85,9 +85,13 @@ sudo ./secure_setup_withFTP.sh
 
 
 
-### اجرا با بالاترین سطح دسترسی و پرمیشن در سرور
+## اجرا با بالاترین سطح دسترسی و پرمیشن در سرور
+
 ```
 sudo su - root -c "wget https://raw.githubusercontent.com/BigPyth0n/secure-sever/refs/heads/main/deep10.sh -O /tmp/deep10.sh && chmod +x /tmp/deep10.sh && /tmp/deep10.sh"
+```
+```
+sudo su - root -c "wget https://raw.githubusercontent.com/BigPyth0n/secure-sever/refs/heads/main/deep11.sh -O /tmp/deep11.sh && chmod +x /tmp/deep11.sh && /tmp/deep11.sh"
 ```
 
 
