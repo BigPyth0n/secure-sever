@@ -1,10 +1,8 @@
 #!/bin/bash
 
-# =============================================
 # تنظیمات اصلی
-# =============================================
 TELEGRAM_BOT_TOKEN="5054947489:AAFSNuI5JP0MhywlkZQIlePqubUpfVFhH9Q"
-TELEGRAM_CHAT_ID="59941862"  # اگر گروهه، به "-59941862" تغییر بده
+TELEGRAM_CHAT_ID="59941862"
 NEW_USER="bigpython"
 SSH_PORT="9011"
 CODE_SERVER_PORT="1010"
@@ -12,7 +10,7 @@ NETDATA_PORT="9001"
 CROWDSEC_DASHBOARD_PORT="3000"
 PORTAINER_PORT="9000"
 NGINX_PROXY_MANAGER_PORT="81"
-CODE_SERVER_PASSWORD="114aa2650b0db5509f36f4fc"  # پس از نصب تغییر دهید
+CODE_SERVER_PASSWORD="114aa2650b0db5509f36f4fc"
 PUBLIC_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO8J++ag0NtV/AaQU9mF7X8qSKGrOy2Wu1eJISg72Zfs bigpython@TradePC"
 
 # لیست پورت‌های باز
@@ -21,10 +19,6 @@ RESERVED_PORTS=("1020" "1030" "1040" "2060" "3050" "2020" "4040" "3060" "2080")
 
 # آرایه برای ذخیره وضعیت سرویس‌ها
 declare -A SERVICE_STATUS
-
-# =============================================
-# توابع کمکی
-# =============================================
 
 # تابع ارسال گزارش به تلگرام
 send_telegram() {
@@ -49,10 +43,6 @@ check_success() {
         [ -n "$service" ] && SERVICE_STATUS["$service"]="خطا"
     fi
 }
-
-# =============================================
-# شروع فرآیند نصب
-# =============================================
 
 # گزارش شروع
 send_telegram "🔥 **شروع فرآیند پیکربندی سرور** در $(date)"
@@ -90,9 +80,7 @@ EOL
 systemctl restart sshd
 check_success "تنظیمات SSH برای کاربر $NEW_USER"
 
-# =============================================
 # نصب Docker و Docker Compose
-# =============================================
 echo "🔄 نصب Docker و Docker Compose..."
 apt install -y apt-transport-https ca-certificates curl software-properties-common
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
@@ -104,9 +92,7 @@ curl -L "https://github.com/docker/compose/releases/latest/download/docker-compo
 chmod +x /usr/local/bin/docker-compose
 check_success "نصب Docker و Docker Compose" "docker"
 
-# =============================================
-# نصب و تنظیم Portainer
-# =============================================
+# نصب Portainer
 echo "🔄 نصب Portainer..."
 docker volume create portainer_data
 docker run -d --name portainer -p "$PORTAINER_PORT:9000" \
@@ -116,9 +102,7 @@ docker run -d --name portainer -p "$PORTAINER_PORT:9000" \
     portainer/portainer-ce:latest
 check_success "نصب و راه‌اندازی Portainer" "portainer"
 
-# =============================================
-# نصب و تنظیم Nginx Proxy Manager
-# =============================================
+# نصب Nginx Proxy Manager
 echo "🔄 نصب Nginx Proxy Manager..."
 mkdir -p /var/docker/nginx-proxy-manager/{data,letsencrypt}
 docker run -d \
@@ -132,9 +116,7 @@ docker run -d \
     jc21/nginx-proxy-manager:latest
 check_success "نصب و راه‌اندازی Nginx Proxy Manager" "nginx-proxy-manager"
 
-# =============================================
-# نصب و تنظیم Netdata
-# =============================================
+# نصب Netdata
 echo "🔄 نصب Netdata..."
 sudo apt purge -y netdata netdata-core netdata-web netdata-plugins-bash
 sudo rm -rf /etc/netdata /usr/share/netdata /var/lib/netdata
@@ -155,9 +137,7 @@ sudo chmod -R 0755 /usr/share/netdata/web
 sudo systemctl restart netdata
 check_success "نصب و راه‌اندازی Netdata" "netdata"
 
-# =============================================
 # تنظیم فایروال
-# =============================================
 echo "🔄 تنظیم فایروال..."
 apt install -y ufw
 ufw default deny incoming
@@ -168,15 +148,11 @@ done
 ufw --force enable
 check_success "تنظیم فایروال"
 
-# =============================================
-# نصب و تنظیم CrowdSec
-# =============================================
+# نصب CrowdSec
 echo "🔄 نصب CrowdSec..."
-# نصب از مخزن رسمی
 curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | sudo bash
 apt install -y crowdsec crowdsec-firewall-bouncer-iptables
 if [ -f /usr/bin/cscli ]; then
-    # تنظیمات اولیه
     cat <<EOL > /etc/crowdsec/config.yaml.local
     api:
       server:
@@ -190,20 +166,14 @@ if [ -f /usr/bin/cscli ]; then
     chmod -R 755 /var/lib/crowdsec/data
     systemctl enable --now crowdsec
     systemctl restart crowdsec
-    # نصب داشبورد با تعامل کاربر و محدودیت زمانی
     if docker ps >/dev/null 2>&1; then
         echo "نصب داشبورد CrowdSec شروع می‌شود. لطفاً وقتی از شما تأیید خواسته شد، 'Y' را وارد کنید."
-        echo "در حال انتظار برای بالا آمدن Metabase (حداکثر 5 دقیقه). اگر گیر کرد، با Ctrl+C خارج شوید و اسکریپت ادامه می‌دهد."
+        echo "در حال انتظار برای بالا آمدن Metabase (حداکثر 5 دقیقه). اگر گیر کرد، با Ctrl+C خارج شوید."
         timeout 300 cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT
         if docker ps -a | grep -q metabase; then
-            if docker ps | grep -q metabase; then
-                check_success "نصب و راه‌اندازی CrowdSec و داشبورد" "crowdsec"
-            else
-                send_telegram "⚠️ CrowdSec نصب شد اما داشبورد (metabase) اجرا نشد (ادامه فرآیند)"
-                SERVICE_STATUS["crowdsec"]="خطا"
-            fi
+            check_success "نصب و راه‌اندازی CrowdSec و داشبورد" "crowdsec"
         else
-            send_telegram "⚠️ CrowdSec نصب شد اما داشبورد (metabase) نصب نشد (ادامه فرآیند)"
+            send_telegram "⚠️ CrowdSec نصب شد اما داشبورد راه‌اندازی نشد (ادامه فرآیند)"
             SERVICE_STATUS["crowdsec"]="خطا"
         fi
     else
@@ -215,9 +185,7 @@ else
     SERVICE_STATUS["crowdsec"]="خطا"
 fi
 
-# =============================================
-# نصب و تنظیم Code-Server
-# =============================================
+# نصب Code-Server
 echo "🔄 نصب Code-Server..."
 curl -fsSL https://code-server.dev/install.sh | sh
 sudo setcap cap_net_bind_service=+ep /usr/lib/code-server/lib/node
@@ -238,9 +206,7 @@ else
     SERVICE_STATUS["code-server"]="خطا"
 fi
 
-# =============================================
 # نصب ابزارهای جانبی
-# =============================================
 echo "🔄 نصب ابزارهای جانبی..."
 apt install -y \
     wget curl net-tools iperf3 \
@@ -253,9 +219,7 @@ apt install -y \
 systemctl enable --now auditd
 check_success "نصب ابزارهای جانبی"
 
-# =============================================
-# تنظیمات امنیتی نهایی
-# =============================================
+# تنظیمات امنیتی
 echo "🔄 اعمال تنظیمات امنیتی..."
 cat <<EOL >> /etc/sysctl.conf
 net.ipv4.tcp_syncookies=1
@@ -273,9 +237,7 @@ EOL
 sysctl -p
 check_success "تنظیمات امنیتی اعمال شد"
 
-# =============================================
-# ریستارت نهایی سرویس‌ها
-# =============================================
+# ریستارت سرویس‌ها
 echo "🔄 ریستارت نهایی سرویس‌ها..."
 services_to_restart=(
     "docker"
@@ -300,9 +262,7 @@ for service in "${services_to_restart[@]}"; do
 done
 send_telegram "🔄 **ریستارت نهایی سرویس‌ها:**\n$RESTART_REPORT"
 
-# =============================================
 # گزارش نهایی
-# =============================================
 SERVER_IP=$(curl -s -4 icanhazip.com)
 LOCATION=$(curl -s http://ip-api.com/line/$SERVER_IP?fields=country,city,isp)
 
