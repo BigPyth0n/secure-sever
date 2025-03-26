@@ -218,9 +218,12 @@ apt install -y ipset iptables curl
 if ! id crowdsec >/dev/null 2>&1; then
     sudo adduser --system --group --no-create-home crowdsec
 fi
-# تنظیم فایل اصلی CrowdSec قبل از نصب
-sudo mkdir -p /etc/crowdsec /var/lib/crowdsec/data
-sudo bash -c 'cat <<EOL > /etc/crowdsec/config.yaml
+# نصب CrowdSec و bouncer
+curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | sudo bash
+if apt install -y crowdsec crowdsec-firewall-bouncer-iptables; then
+    if [ -f /usr/bin/cscli ]; then
+        # تنظیم فایل اصلی CrowdSec
+        sudo bash -c 'cat <<EOL > /etc/crowdsec/config.yaml
 api:
   server:
     listen_uri: 0.0.0.0:'"$CROWDSEC_DASHBOARD_PORT"'
@@ -229,16 +232,21 @@ db_config:
   type: sqlite
   db_path: /var/lib/crowdsec/data/crowdsec.db
 EOL'
-# نصب CrowdSec و bouncer
-curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | sudo bash
-if apt install -y crowdsec crowdsec-firewall-bouncer-iptables; then
-    if [ -f /usr/bin/cscli ]; then
+        # تنظیم فایل محلی
+        sudo bash -c 'cat <<EOL > /etc/crowdsec/config.yaml.local
+api:
+  server:
+    listen_uri: 0.0.0.0:'"$CROWDSEC_DASHBOARD_PORT"'
+    profiles_path: /etc/crowdsec/profiles.yaml
+db_config:
+  type: sqlite
+  db_path: /var/lib/crowdsec/data/crowdsec.db
+EOL'
         sudo chown -R crowdsec:crowdsec /etc/crowdsec /var/lib/crowdsec/data
         sudo chmod -R 755 /var/lib/crowdsec/data
         systemctl enable --now crowdsec
         systemctl restart crowdsec
         if systemctl is-active crowdsec >/dev/null 2>&1; then
-            # نصب داشبورد Metabase
             if systemctl is-active docker >/dev/null 2>&1; then
                 echo "نصب داشبورد CrowdSec شروع می‌شود (غیرتعاملی، حداکثر 5 دقیقه)..."
                 timeout 300 cscli dashboard setup --listen 0.0.0.0:"$CROWDSEC_DASHBOARD_PORT" --yes
