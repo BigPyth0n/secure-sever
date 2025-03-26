@@ -93,6 +93,9 @@ sudo su - root -c "wget https://raw.githubusercontent.com/BigPyth0n/secure-sever
 ```
 sudo su - root -c "wget https://raw.githubusercontent.com/BigPyth0n/secure-sever/refs/heads/main/deep11.sh -O /tmp/deep11.sh && chmod +x /tmp/deep11.sh && /tmp/deep11.sh"
 ```
+```
+sudo su - root -c "wget https://raw.githubusercontent.com/BigPyth0n/secure-sever/refs/heads/main/deep12.sh -O /tmp/deep12.sh && chmod +x /tmp/deep12.sh && /tmp/deep12.sh"
+```
 
 
 
