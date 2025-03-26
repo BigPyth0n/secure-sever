@@ -79,7 +79,21 @@ chmod +x secure_setup_withFTP.sh
 ```
 sudo ./secure_setup_withFTP.sh
 ```
-   
+
+
+
+
+
+
+```
+wget https://raw.githubusercontent.com/BigPyth0n/secure-sever/refs/heads/main/deep10.sh
+```
+```
+chmod +x deep10.sh
+```
+```
+sudo ./deep10.sh
+```  
 
 
 
