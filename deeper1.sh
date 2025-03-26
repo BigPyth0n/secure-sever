@@ -144,21 +144,20 @@ apt install -y crowdsec crowdsec-firewall-bouncer-iptables
 systemctl enable --now crowdsec
 check_success "نصب CrowdSec"
 
+
+
+
+
+
+
 # 10. نصب و تنظیم Code-Server (رفع مشکل binding)
-curl -fsSL https://code-server.dev/install.sh | sh
-systemctl enable --now code-server@"$NEW_USER"
 
-mkdir -p "/home/$NEW_USER/.config/code-server"
-cat <<EOL > "/home/$NEW_USER/.config/code-server/config.yaml"
-bind-addr: 0.0.0.0:$CODE_SERVER_PORT
-auth: password
-password: $CODE_SERVER_PASSWORD
-cert: false
-EOL
 
-chown -R "$NEW_USER":"$NEW_USER" "/home/$NEW_USER/.config"
-systemctl restart code-server@"$NEW_USER"
-check_success "نصب و تنظیم Code-Server"
+
+
+
+
+
 
 # 11. تنظیمات امنیتی
 cat <<EOL >> /etc/sysctl.conf
