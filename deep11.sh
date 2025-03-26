@@ -170,212 +170,68 @@ check_success "تنظیم فایروال"
 
 
 
-# =============================================
-# نصب و تنظیم CrowdSec (نسخه متمرکز بر رفع خطا)
-# =============================================
-echo "🔄 تلاش برای نصب و پیکربندی CrowdSec (نسخه متمرکز بر رفع خطا)..."
 
-# بررسی پیش‌نیازها (تاکید بیشتر)
-echo "🔍 بررسی دقیق‌تر پیش‌نیازها..."
-if ! command -v curl &> /dev/null; then
-    echo "❌ خطا: curl نصب نیست. لطفاً آن را نصب کنید: sudo apt update && sudo apt install -y curl"
-    exit 1
-fi
-if ! command -v gpg &> /dev/null; then
-    echo "❌ خطا: gpg نصب نیست. لطفاً آن را نصب کنید: sudo apt update && sudo apt install -y gpg"
-    exit 1
-fi
-if ! command -v apt-transport-https &> /dev/null; then
-    echo "❌ خطا: apt-transport-https نصب نیست. لطفاً آن را نصب کنید: sudo apt update && sudo apt install -y apt-transport-https"
-    exit 1
-fi
-if [[ $(apt --version | awk '{print $3}') < 2.0 ]]; then
-    echo "⚠️ هشدار: نسخه apt شما قدیمی است. توصیه می‌شود آن را به روز رسانی کنید."
-fi
 
-# به‌روزرسانی لیست بسته‌ها (تلاش مجدد)
-echo "🔄 به‌روزرسانی لیست بسته‌ها (تلاش مجدد)..."
-sudo apt update
-
-# افزودن repository CrowdSec (تلاش مجدد و بررسی خطا)
-echo "📥 افزودن repository CrowdSec (تلاش مجدد و بررسی خطا)..."
-CROWDSEC_REPO_FILE="/etc/apt/sources.list.d/crowdsec_crowdsec.list"
-if [ -f "$CROWDSEC_REPO_FILE" ]; then
-    echo "ℹ️ Repository CrowdSec قبلاً اضافه شده است."
-else
-    curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | sudo bash
-    if [ $? -ne 0 ]; then
-        echo "❌ خطا در افزودن repository CrowdSec. لطفاً دستور زیر را به صورت دستی اجرا کنید و نتیجه را بررسی کنید:"
-        echo "curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | sudo bash"
-        exit 1
-    fi
-fi
-
-# به‌روزرسانی مجدد لیست بسته‌ها (پس از افزودن repository)
-echo "🔄 به‌روزرسانی مجدد لیست بسته‌ها (پس از افزودن repository)..."
-sudo apt update
-
-# نصب بسته‌های CrowdSec (تلاش مجدد و بررسی خطا)
-echo "📦 نصب بسته‌های CrowdSec (تلاش مجدد و بررسی خطا)..."
-sudo apt install -y crowdsec crowdsec-firewall-bouncer-iptables ipset libipset13
-if [ $? -ne 0 ]; then
-    echo "❌ خطا در نصب بسته‌های CrowdSec. لطفاً دستور زیر را به صورت دستی اجرا کنید و نتیجه را بررسی کنید:"
-    echo "sudo apt install -y crowdsec crowdsec-firewall-bouncer-iptables ipset libipset13"
-    exit 1
-fi
-
-# ایجاد کاربر CrowdSec (بررسی وجود و تلاش برای ایجاد)
-if ! id -u crowdsec >/dev/null 2>&1; then
-    echo "👤 ایجاد کاربر سیستم crowdsec..."
-    sudo adduser --system --group --disabled-password --shell /bin/false crowdsec
-    if [ $? -ne 0 ]; then
-        echo "❌ خطا در ایجاد کاربر سیستم crowdsec. لطفاً دستور زیر را به صورت دستی اجرا کنید و نتیجه را بررسی کنید:"
-        echo "sudo adduser --system --group --disabled-password --shell /bin/false crowdsec"
-        exit 1
-    fi
-else
-    echo "ℹ️ کاربر سیستم crowdsec قبلاً وجود دارد."
-fi
-
-# تنظیمات API CrowdSec (تلاش مجدد)
-echo "⚙️ تنظیمات API CrowdSec (تلاش مجدد)..."
-CROWDSEC_CONFIG_FILE="/etc/crowdsec/config.yaml.local"
-sudo tee "$CROWDSEC_CONFIG_FILE" >/dev/null <<EOL
+# نصب و تنظیم CrowdSec
+echo "🔄 نصب CrowdSec..."
+# نصب پیش‌نیازها
+apt install -y ipset iptables
+# نصب از مخزن رسمی
+curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | sudo bash
+if apt install -y crowdsec crowdsec-firewall-bouncer-iptables; then
+    if [ -f /usr/bin/cscli ]; then
+        # تنظیمات اولیه
+        cat <<EOL > /etc/crowdsec/config.yaml.local
 api:
   server:
-    listen_uri: 127.0.0.1:8080
+    listen_uri: 0.0.0.0:$CROWDSEC_DASHBOARD_PORT
     profiles_path: /etc/crowdsec/profiles.yaml
-  client:
-    insecure_skip_verify: true  # ⚠️ توصیه می‌شود علت اصلی خطای اتصال API را بررسی و رفع کنید.
 db_config:
   type: sqlite
   db_path: /var/lib/crowdsec/data/crowdsec.db
 EOL
-if [ $? -ne 0 ]; then
-    echo "❌ خطا در نوشتن تنظیمات API CrowdSec. لطفاً محتوای فایل $CROWDSEC_CONFIG_FILE را بررسی کنید:"
-    cat "$CROWDSEC_CONFIG_FILE"
-    exit 1
-fi
-
-# تنظیم مجوزهای CrowdSec (تلاش مجدد)
-echo "🔒 تنظیم مجوزهای CrowdSec (تلاش مجدد)..."
-sudo chown -R crowdsec:crowdsec /etc/crowdsec
-sudo chown -R crowdsec:crowdsec /var/lib/crowdsec/data
-sudo chmod -R 755 /var/lib/crowdsec/data
-if [ $? -ne 0 ]; then
-    echo "❌ خطا در تنظیم مجوزهای CrowdSec. لطفاً دستورات زیر را به صورت دستی اجرا کنید و نتیجه را بررسی کنید:"
-    echo "sudo chown -R crowdsec:crowdsec /etc/crowdsec"
-    echo "sudo chown -R crowdsec:crowdsec /var/lib/crowdsec/data"
-    echo "sudo chmod -R 755 /var/lib/crowdsec/data"
-    exit 1
-fi
-
-# راه‌اندازی سرویس CrowdSec (تلاش مجدد و بررسی وضعیت)
-echo "🚀 راه‌اندازی سرویس CrowdSec (تلاش مجدد و بررسی وضعیت)..."
-sudo systemctl daemon-reload
-sudo systemctl enable crowdsec
-if ! sudo systemctl restart crowdsec; then
-    echo "⚠️ هشدار: راه‌اندازی اولیه سرویس CrowdSec با مشکل مواجه شد. تلاش برای اجرای مستقیم..."
-    sudo -u crowdsec /usr/bin/crowdsec -c /etc/crowdsec/config.yaml &
-    sleep 10
-    if ! sudo systemctl is-active --quiet crowdsec; then
-        echo "❌ خطا: سرویس CrowdSec پس از تلاش مجدد نیز فعال نشد. لطفاً وضعیت آن را بررسی کنید: sudo systemctl status crowdsec"
-        SERVICE_STATUS["crowdsec"]="نصب ناقص"
-        exit 1
-    else
-        echo "✅ سرویس CrowdSec با موفقیت راه‌اندازی شد (با روش جایگزین)."
-    fi
-else
-    echo "✅ سرویس CrowdSec با موفقیت راه‌اندازی شد."
-fi
-
-# =============================================
-# نصب Metabase (CrowdSec Dashboard) (نسخه بسیار متمرکز بر رفع خطا)
-# =============================================
-echo "🔄 تلاش برای نصب Metabase (CrowdSec Dashboard) (نسخه بسیار متمرکز بر رفع خطا)..."
-
-# بررسی پیش‌نیازهای Docker (تاکید بیشتر)
-echo "🔍 بررسی دقیق‌تر پیش‌نیازهای Docker..."
-if ! command -v docker &> /dev/null; then
-    echo "❌ خطا: Docker نصب نیست. لطفاً آن را نصب کنید."
-    exit 1
-fi
-if ! sudo systemctl is-active --quiet docker; then
-    echo "❌ خطا: سرویس Docker در حال اجرا نیست. لطفاً آن را راه‌اندازی کنید: sudo systemctl start docker"
-    exit 1
-fi
-
-# بررسی وجود docker-compose (افزودن این مورد)
-echo "🔍 بررسی وجود docker-compose..."
-if ! command -v docker-compose &> /dev/null; then
-    echo "⚠️ هشدار: docker-compose نصب نیست. ممکن است برای راه‌اندازی Metabase مورد نیاز باشد. لطفاً آن را نصب کنید: sudo apt install -y docker-compose"
-fi
-
-# بررسی وجود دستور cscli (تاکید بیشتر)
-echo "🔍 بررسی دقیق‌تر وجود دستور cscli..."
-if ! command -v cscli &> /dev/null; then
-    echo "❌ خطا: دستور cscli پیدا نشد. مطمئن شوید که CrowdSec به درستی نصب شده است."
-    exit 1
-fi
-
-# بررسی فضای دیسک (افزودن این مورد)
-echo "💾 بررسی فضای دیسک آزاد..."
-DISK_SPACE=$(df -h / | awk 'NR==2 {print $4}')
-echo "فضای دیسک آزاد: $DISK_SPACE"
-DISK_SPACE_MB=$(echo "$DISK_SPACE" | sed 's/G//' | awk '{print $1 * 1024}')
-if [ "$DISK_SPACE_MB" -lt 1024 ]; then # بررسی وجود حداقل 1 گیگابایت فضای آزاد
-    echo "⚠️ هشدار: فضای دیسک آزاد ممکن است کم باشد. این می‌تواند باعث بروز خطا در نصب شود."
-fi
-
-# حذف کانتینر Metabase قبلی (تلاش مجدد)
-echo "🧹 حذف کانتینر Metabase قبلی (در صورت وجود)..."
-sudo docker rm -f metabase 2>/dev/null || true
-
-# تلاش برای راه‌اندازی داشبورد CrowdSec (Metabase) - تعاملی با تاکید بیشتر
-echo "🚀 تلاش برای راه‌اندازی داشبورد CrowdSec (Metabase) - تعاملی با تاکید بیشتر..."
-echo "⚠️ بسیار مهم: در مرحله بعد، از شما پرسیده خواهد شد که آیا مسئولیت امنیتی Metabase را می‌پذیرید. لطفاً با دقت به سوال پاسخ دهید و 'y' را وارد کرده و Enter بزنید."
-METABASE_LOG_FILE="/var/log/crowdsec_dashboard_setup.log"
-sudo cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT >> "$METABASE_LOG_FILE" 2>&1
-DASHBOARD_SETUP_EXIT_CODE=$?
-if [ $DASHBOARD_SETUP_EXIT_CODE -ne 0 ]; then
-    echo "❌ خطا در اجرای دستور cscli dashboard setup. جزئیات بیشتر در: $METABASE_LOG_FILE"
-    SERVICE_STATUS["crowdsec_dashboard"]="نصب ناقص"
-    cat "$METABASE_LOG_FILE"
-    echo "⚠️ لطفاً محتوای فایل $METABASE_LOG_FILE را بررسی کنید و در صورت نیاز، دستور زیر را به صورت دستی اجرا کنید:"
-    echo "sudo cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT"
-    exit 1
-fi
-
-# انتظار هوشمند برای راه‌اندازی Metabase (تلاش مجدد و بررسی دقیق‌تر)
-echo "⏳ در حال انتظار برای راه‌اندازی Metabase (تلاش مجدد و بررسی دقیق‌تر)..."
-METABASE_READY=false
-for i in {1..120}; do # افزایش زمان انتظار به 10 دقیقه
-    if docker ps --filter name=metabase --format "{{.State}}" | grep -q "running"; then
-        if curl -sSf http://localhost:$CROWDSEC_DASHBOARD_PORT >/dev/null; then
-            METABASE_READY=true
-            echo "✅ Metabase با موفقیت راه‌اندازی شد."
-            break
+        chown -R crowdsec:crowdsec /etc/crowdsec
+        chmod -R 755 /var/lib/crowdsec/data
+        systemctl enable --now crowdsec
+        systemctl restart crowdsec
+        # چک کردن و فعال کردن Docker
+        if ! systemctl is-active docker >/dev/null 2>&1; then
+            systemctl start docker
+            if ! systemctl is-active docker >/dev/null 2>&1; then
+                send_telegram "❌ Docker فعال نشد، نصب داشبورد CrowdSec رد شد (ادامه فرآیند)"
+                SERVICE_STATUS["crowdsec"]="نصب ناقص"
+            fi
+        fi
+        if systemctl is-active docker >/dev/null 2>&1; then
+            echo "نصب داشبورد CrowdSec شروع می‌شود. لطفاً 'Y' را وارد کنید وقتی خواسته شد."
+            echo "انتظار برای Metabase حداکثر 5 دقیقه است. اگر گیر کرد، Ctrl+C بزنید."
+            timeout 300 cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT
+            sleep 10  # زمان اضافی برای اطمینان از بالا آمدن
+            if docker ps -a | grep -q metabase; then
+                if docker ps | grep -q metabase; then
+                    check_success "نصب و راه‌اندازی CrowdSec و داشبورد" "crowdsec"
+                else
+                    send_telegram "⚠️ CrowdSec نصب شد اما داشبورد اجرا نشد (ادامه فرآیند)"
+                    SERVICE_STATUS["crowdsec"]="خطا"
+                fi
+            else
+                send_telegram "⚠️ CrowdSec نصب شد اما داشبورد نصب نشد (ادامه فرآیند)"
+                SERVICE_STATUS["crowdsec"]="خطا"
+            fi
         else
-            echo "⏳ Metabase در حال اجرا است اما به درخواست‌ها پاسخ نمی‌دهد (تلاش $i از 120)."
+            send_telegram "⚠️ Docker فعال نیست، نصب داشبورد CrowdSec رد شد (ادامه فرآیند)"
+            SERVICE_STATUS["crowdsec"]="نصب ناقص"
         fi
     else
-        echo "⏳ کانتینر Metabase هنوز در حال راه‌اندازی است (تلاش $i از 120)."
+        send_telegram "❌ نصب CrowdSec شکست خورد، cscli پیدا نشد (ادامه فرآیند)"
+        SERVICE_STATUS["crowdsec"]="خطا"
     fi
-    sleep 5
-done
-
-if [ "$METABASE_READY" = false ]; then
-    echo "❌ خطا: Metabase پس از 10 دقیقه تلاش نیز راه‌اندازی نشد."
-    echo "💡 می‌توانید بعداً به صورت دستی تلاش کنید: sudo cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT --force"
-    echo "📄 بررسی لاگ‌های Docker Metabase: sudo docker logs metabase"
-    echo "👂 بررسی پورت: sudo netstat -tulnp | grep $CROWDSEC_DASHBOARD_PORT"
-    SERVICE_STATUS["crowdsec_dashboard"]="نصب ناقص"
-    exit 1
+else
+    send_telegram "❌ نصب CrowdSec به دلیل خطای apt شکست خورد (ادامه فرآیند)"
+    SERVICE_STATUS["crowdsec"]="خطا"
 fi
 
-echo "✅ نصب و پیکربندی CrowdSec و Metabase با موفقیت به پایان رسید."
-SERVICE_STATUS["crowdsec"]="نصب کامل"
-SERVICE_STATUS["crowdsec_dashboard"]="نصب کامل"
+
 
 
 
