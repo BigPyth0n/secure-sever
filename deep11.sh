@@ -168,88 +168,209 @@ done
 ufw --force enable
 check_success "تنظیم فایروال"
 
-# =============================================
-# نصب و تنظیم CrowdSec
-# =============================================
-# اصلاح بخش نصب CrowdSec در اسکریپت شما
-echo "🔄 نصب و پیکربندی CrowdSec با رفع خطای اتصال API..."
 
-# نصب بسته‌ها
-curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | sudo bash
-sudo apt install -y crowdsec crowdsec-firewall-bouncer-iptables
 
-# ایجاد کاربر اگر وجود ندارد
-if ! id -u crowdsec >/dev/null 2>&1; then
-    sudo adduser --system --group --disabled-password --shell /bin/false crowdsec
+
+# =============================================
+# نصب و تنظیم CrowdSec (نسخه بهینه شده)
+# =============================================
+echo "🔄 تلاش برای نصب و پیکربندی CrowdSec (نسخه بهینه شده)..."
+
+# بررسی پیش‌نیازها
+echo "🔍 بررسی پیش‌نیازها..."
+if ! command -v curl &> /dev/null; then
+    echo "❌ خطا: curl نصب نیست. لطفاً آن را نصب کنید: sudo apt update && sudo apt install -y curl"
+    exit 1
+fi
+if ! command -v gpg &> /dev/null; then
+    echo "❌ خطا: gpg نصب نیست. لطفاً آن را نصب کنید: sudo apt update && sudo apt install -y gpg"
+    exit 1
+fi
+if [[ $(apt --version | awk '{print $3}') < 2.0 ]]; then
+    echo "⚠️ هشدار: نسخه apt شما قدیمی است. توصیه می‌شود آن را به روز رسانی کنید."
 fi
 
-# تنظیمات API با رفع خطای اتصال
-sudo tee /etc/crowdsec/config.yaml.local >/dev/null <<EOL
+# به‌روزرسانی لیست بسته‌ها
+echo "🔄 به‌روزرسانی لیست بسته‌ها..."
+sudo apt update
+
+# نصب بسته‌های مورد نیاز برای افزودن repositoryهای HTTPS
+echo "📦 نصب apt-transport-https..."
+sudo apt install -y apt-transport-https
+
+# افزودن repository CrowdSec
+echo "📥 افزودن repository CrowdSec..."
+CROWDSEC_REPO_FILE="/etc/apt/sources.list.d/crowdsec_crowdsec.list"
+if [ -f "$CROWDSEC_REPO_FILE" ]; then
+    echo "ℹ️ Repository CrowdSec قبلاً اضافه شده است."
+else
+    curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | sudo bash
+    if [ $? -ne 0 ]; then
+        echo "❌ خطا در افزودن repository CrowdSec."
+        exit 1
+    fi
+fi
+
+# به‌روزرسانی مجدد لیست بسته‌ها پس از افزودن repository
+echo "🔄 به‌روزرسانی مجدد لیست بسته‌ها..."
+sudo apt update
+
+# نصب بسته‌های CrowdSec
+echo "📦 نصب بسته‌های CrowdSec..."
+sudo apt install -y crowdsec crowdsec-firewall-bouncer-iptables ipset libipset13
+
+if [ $? -ne 0 ]; then
+    echo "❌ خطا در نصب بسته‌های CrowdSec."
+    exit 1
+fi
+
+# ایجاد کاربر CrowdSec اگر وجود ندارد
+if ! id -u crowdsec >/dev/null 2>&1; then
+    echo "👤 ایجاد کاربر سیستم crowdsec..."
+    sudo adduser --system --group --disabled-password --shell /bin/false crowdsec
+    if [ $? -ne 0 ]; then
+        echo "❌ خطا در ایجاد کاربر سیستم crowdsec."
+        exit 1
+    fi
+else
+    echo "ℹ️ کاربر سیستم crowdsec قبلاً وجود دارد."
+fi
+
+# تنظیمات API با رفع خطای اتصال (توصیه می‌شود علت اصلی را بررسی کنید)
+echo "⚙️ تنظیمات API CrowdSec..."
+CROWDSEC_CONFIG_FILE="/etc/crowdsec/config.yaml.local"
+sudo tee "$CROWDSEC_CONFIG_FILE" >/dev/null <<EOL
 api:
   server:
     listen_uri: 127.0.0.1:8080
     profiles_path: /etc/crowdsec/profiles.yaml
   client:
-    insecure_skip_verify: true  # این خط برای رفع خطای اتصال اضافه شده
+    insecure_skip_verify: true  # ⚠️ توصیه می‌شود علت اصلی خطای اتصال API را بررسی و رفع کنید.
 db_config:
   type: sqlite
   db_path: /var/lib/crowdsec/data/crowdsec.db
 EOL
+if [ $? -ne 0 ]; then
+    echo "❌ خطا در نوشتن تنظیمات API CrowdSec."
+    exit 1
+fi
 
 # تنظیم مجوزها
+echo "🔒 تنظیم مجوزهای CrowdSec..."
 sudo chown -R crowdsec:crowdsec /etc/crowdsec
 sudo chown -R crowdsec:crowdsec /var/lib/crowdsec/data
 sudo chmod -R 755 /var/lib/crowdsec/data
-
-# راه‌اندازی سرویس با تاخیر مناسب
-sudo systemctl daemon-reload
-sudo systemctl enable crowdsec
-
-# راه‌اندازی سرویس با بررسی خطا
-if ! sudo systemctl restart crowdsec; then
-    echo "⏳ در حال اعمال راهکار جایگزین برای CrowdSec..."
-    sudo -u crowdsec /usr/bin/crowdsec -c /etc/crowdsec/config.yaml &
-    sleep 10
+if [ $? -ne 0 ]; then
+    echo "❌ خطا در تنظیم مجوزهای CrowdSec."
+    exit 1
 fi
 
-# نصب Metabase با پاسخ خودکار
-echo "🔄 نصب Metabase با پاسخ خودکار..."
-sudo docker rm -f metabase 2>/dev/null || true
-yes | sudo cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT >/dev/null 2>&1
+# راه‌اندازی سرویس CrowdSec
+echo "🚀 راه‌اندازی سرویس CrowdSec..."
+sudo systemctl daemon-reload
+sudo systemctl enable crowdsec
+if ! sudo systemctl restart crowdsec; then
+    echo "⚠️ هشدار: راه‌اندازی اولیه سرویس CrowdSec با مشکل مواجه شد. تلاش برای اجرای مستقیم..."
+    sudo -u crowdsec /usr/bin/crowdsec -c /etc/crowdsec/config.yaml &
+    sleep 10
+    if ! sudo systemctl is-active --quiet crowdsec; then
+        echo "❌ خطا: سرویس CrowdSec پس از تلاش مجدد نیز فعال نشد. لطفاً وضعیت آن را بررسی کنید: sudo systemctl status crowdsec"
+        SERVICE_STATUS["crowdsec"]="نصب ناقص"
+        exit 1
+    else
+        echo "✅ سرویس CrowdSec با موفقیت راه‌اندازی شد (با روش جایگزین)."
+    fi
+else
+    echo "✅ سرویس CrowdSec با موفقیت راه‌اندازی شد."
+fi
 
-# انتظار هوشمند برای Metabase
-echo "⏳ در حال راه‌اندازی Metabase..."
-for i in {1..30}; do
-    if docker ps | grep -q metabase && curl -sSf http://localhost:$CROWDSEC_DASHBOARD_PORT >/dev/null; then
-        break
+# =============================================
+# نصب Metabase (CrowdSec Dashboard) (نسخه بهینه شده)
+# =============================================
+echo "🔄 تلاش برای نصب Metabase (CrowdSec Dashboard) (نسخه بهینه شده)..."
+
+# بررسی پیش‌نیازهای Docker
+echo "🔍 بررسی پیش‌نیازهای Docker..."
+if ! command -v docker &> /dev/null; then
+    echo "❌ خطا: Docker نصب نیست. لطفاً آن را نصب کنید."
+    exit 1
+fi
+if ! sudo systemctl is-active --quiet docker; then
+    echo "❌ خطا: سرویس Docker در حال اجرا نیست. لطفاً آن را راه‌اندازی کنید: sudo systemctl start docker"
+    exit 1
+fi
+
+# حذف کانتینر Metabase قبلی اگر وجود دارد
+echo "🧹 حذف کانتینر Metabase قبلی (در صورت وجود)..."
+sudo docker rm -f metabase 2>/dev/null || true
+
+# راه‌اندازی داشبورد CrowdSec (Metabase)
+echo "🚀 راه‌اندازی داشبورد CrowdSec (Metabase)..."
+METABASE_LOG_FILE="/var/log/crowdsec_dashboard_setup.log"
+yes | sudo cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT >> "$METABASE_LOG_FILE" 2>&1
+DASHBOARD_SETUP_EXIT_CODE=$?
+if [ $DASHBOARD_SETUP_EXIT_CODE -ne 0 ]; then
+    echo "❌ خطا در اجرای دستور cscli dashboard setup. جزئیات بیشتر در: $METABASE_LOG_FILE"
+    SERVICE_STATUS["crowdsec_dashboard"]="نصب ناقص"
+    cat "$METABASE_LOG_FILE"
+    exit 1
+fi
+
+# انتظار هوشمند برای راه‌اندازی Metabase
+echo "⏳ در حال انتظار برای راه‌اندازی Metabase..."
+METABASE_READY=false
+for i in {1..60}; do # افزایش زمان انتظار به 5 دقیقه (60 * 5 ثانیه)
+    if docker ps --filter name=metabase --format "{{.State}}" | grep -q "running"; then
+        if curl -sSf http://localhost:$CROWDSEC_DASHBOARD_PORT >/dev/null; then
+            METABASE_READY=true
+            echo "✅ Metabase با موفقیت راه‌اندازی شد."
+            break
+        else
+            echo "⏳ Metabase در حال اجرا است اما به درخواست‌ها پاسخ نمی‌دهد (تلاش $i از 60)."
+        fi
+    else
+        echo "⏳ کانتینر Metabase هنوز در حال راه‌اندازی است (تلاش $i از 60)."
     fi
     sleep 5
 done
 
-# بررسی نهایی
-if docker ps | grep -q metabase; then
-    check_success "CrowdSec و Metabase با موفقیت نصب شدند" "crowdsec"
-else
-    echo "⚠️ خطا: CrowdSec Dashboard راه‌اندازی نشد"
-    echo "💡 می‌توانید بعداً دستی این کار را انجام دهید:"
-    echo "sudo cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT --force"
-    SERVICE_STATUS["crowdsec"]="نصب ناقص"
+if [ "$METABASE_READY" = false ]; then
+    echo "❌ خطا: Metabase پس از 5 دقیقه تلاش نیز راه‌اندازی نشد."
+    echo "💡 می‌توانید بعداً به صورت دستی تلاش کنید: sudo cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT --force"
+    echo "📄 بررسی لاگ‌های Docker Metabase: sudo docker logs metabase"
+    echo "👂 بررسی پورت: sudo netstat -tulnp | grep $CROWDSEC_DASHBOARD_PORT"
+    SERVICE_STATUS["crowdsec_dashboard"]="نصب ناقص"
+    exit 1
 fi
 
-# ======================== اجرای اصلی ========================
-install_and_configure_crowdsec
+echo "✅ نصب و پیکربندی CrowdSec و Metabase با موفقیت به پایان رسید."
+SERVICE_STATUS["crowdsec"]="نصب کامل"
+SERVICE_STATUS["crowdsec_dashboard"]="نصب کامل"
 
-# ======================== بررسی نهایی ========================
-if docker ps | grep -q metabase && curl -sSf http://localhost:$CROWDSEC_DASHBOARD_PORT >/dev/null; then
-    check_success "CrowdSec و Metabase با موفقیت نصب شدند" "crowdsec"
+# ======================== اجرای اصلی (توصیه می‌شود این بخش را در صورت نیاز تنظیم کنید) ========================
+# در این نسخه، نصب CrowdSec و Metabase به طور کامل در بالا انجام شده است.
+# نیازی به فراخوانی تابع install_and_configure_crowdsec در اینجا نیست.
+
+# ======================== بررسی نهایی (این بخش می‌تواند در انتهای اسکریپت اصلی شما قرار بگیرد) ========================
+echo "📊 بررسی نهایی وضعیت CrowdSec و Metabase..."
+if sudo systemctl is-active --quiet crowdsec && docker ps --filter name=metabase --format "{{.State}}" | grep -q "running" && curl -sSf http://localhost:$CROWDSEC_DASHBOARD_PORT >/dev/null; then
+    echo "✅ CrowdSec و Metabase هر دو به نظر می‌رسد به درستی کار می‌کنند."
 else
-    echo "🔴 خطای نهایی: CrowdSec Dashboard کار نمی‌کند"
-    echo "💡 دستورات تشخیصی زیر را اجرا کنید:"
-    echo "1. بررسی وضعیت کانتینر: sudo docker ps -a"
-    echo "2. بررسی لاگ Metabase: sudo docker logs metabase"
-    echo "3. بررسی پورت: sudo netstat -tulnp | grep 3000"
-    echo "4. بررسی سرویس: sudo systemctl status crowdsec"
+    echo "❌ یک یا چند سرویس (CrowdSec یا Metabase) به درستی کار نمی‌کنند."
+    if ! sudo systemctl is-active --quiet crowdsec; then
+        echo "   - CrowdSec: ❌ غیر فعال یا با خطا مواجه شده است (sudo systemctl status crowdsec)."
+    fi
+    if ! docker ps --filter name=metabase --format "{{.State}}" | grep -q "running"; then
+        echo "   - Metabase: ❌ کانتینر در حال اجرا نیست (sudo docker ps -a --filter name=metabase)."
+    fi
+    if ! curl -sSf http://localhost:$CROWDSEC_DASHBOARD_PORT >/dev/null; then
+        echo "   - Metabase: ❌ به پورت $CROWDSEC_DASHBOARD_PORT پاسخ نمی‌دهد (sudo netstat -tulnp | grep $CROWDSEC_DASHBOARD_PORT)."
+    fi
 fi
+
+
+
+
 
 
 
