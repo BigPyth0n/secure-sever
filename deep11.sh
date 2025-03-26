@@ -158,15 +158,37 @@ done
 ufw --force enable
 check_success "تنظیم فایروال"
 
+
+
+
+
+
+
+
+
+
+========================================================
 # نصب و تنظیم CrowdSec و Metabase
 echo "🔄 نصب CrowdSec و داشبورد Metabase..."
-# نصب پیش‌نیازها
 apt install -y ipset iptables
-# نصب از مخزن رسمی
 curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | sudo bash
 if apt install -y crowdsec crowdsec-firewall-bouncer-iptables; then
     if [ -f /usr/bin/cscli ]; then
-        # تنظیمات اولیه CrowdSec
+        # ایجاد کاربر crowdsec اگه وجود نداره
+        if ! id crowdsec >/dev/null 2>&1; then
+            sudo adduser --system --group --no-create-home crowdsec
+        fi
+        # تنظیم فایل اصلی config.yaml
+        cat <<EOL > /etc/crowdsec/config.yaml
+api:
+  server:
+    listen_uri: 0.0.0.0:$CROWDSEC_DASHBOARD_PORT
+    profiles_path: /etc/crowdsec/profiles.yaml
+db_config:
+  type: sqlite
+  db_path: /var/lib/crowdsec/data/crowdsec.db
+EOL
+        # تنظیم فایل محلی
         cat <<EOL > /etc/crowdsec/config.yaml.local
 api:
   server:
@@ -180,12 +202,11 @@ EOL
         chmod -R 755 /var/lib/crowdsec/data
         systemctl enable --now crowdsec
         systemctl restart crowdsec
-        # نصب داشبورد بدون تعامل
         if systemctl is-active docker >/dev/null 2>&1; then
             echo "نصب داشبورد CrowdSec شروع می‌شود (غیرتعاملی، حداکثر 5 دقیقه)..."
             timeout 300 cscli dashboard setup --listen 0.0.0.0:$CROWDSEC_DASHBOARD_PORT --yes
             if [ $? -eq 0 ]; then
-                sleep 10  # زمان اضافی برای بالا آمدن
+                sleep 10
                 if docker ps -a | grep -q metabase; then
                     if docker ps | grep -q metabase; then
                         check_success "نصب و راه‌اندازی CrowdSec و داشبورد" "crowdsec"
@@ -217,7 +238,7 @@ EOL
                         fi
                     else
                         send_telegram "⚠️ CrowdSec نصب شد اما داشبورد نصب نشد (ادامه فرآیند)"
-                        SERVICE_STATUS["crowdsec"]="خطا"
+                            SERVICE_STATUS["crowdsec"]="خطا"
                     fi
                 else
                     send_telegram "❌ نصب داشبورد CrowdSec با خطا مواجه شد (ادامه فرآیند)"
@@ -236,6 +257,13 @@ else
     send_telegram "❌ نصب CrowdSec به دلیل خطای apt شکست خورد (ادامه فرآیند)"
     SERVICE_STATUS["crowdsec"]="خطا"
 fi
+======================================================================
+
+
+
+
+
+
 
 # نصب Code-Server
 echo "🔄 نصب Code-Server..."
