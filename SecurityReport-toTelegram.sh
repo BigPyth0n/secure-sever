@@ -6,48 +6,62 @@ TELEGRAM_CHAT_ID="59941862"
 CONSOLE_EMAIL="kitzone.ir@gmail.com"
 LOG_FILE="/var/log/crowdsec_reports.log"
 
+# تابع ارسال به تلگرام
+send_telegram() {
+    local message="$1"
+    message=$(echo -e "$message" | sed 's/\*/\\*/g; s/_/\\_/g; s/`/\\`/g; s/|/\\|/g; s/-/\\-/g')
+    
+    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+        -d "chat_id=$TELEGRAM_CHAT_ID" \
+        -d "text=$message" \
+        -d "parse_mode=Markdown" >> "$LOG_FILE" 2>&1
+}
+
 # تابع پردازش جدول‌های cscli
 parse_table() {
     local input="$1"
-    echo "$input" | awk '
-    BEGIN { FS = "\\|"; }
-    NR > 2 && !/^\+/ && !/^$/ {
+    local headers="$2"
+    echo "$input" | awk -v headers="$headers" '
+    BEGIN { 
+        FS = "\\|";
+        split(headers, h, "|");
+    }
+    NR > 2 && !/^\+/ && !/^$/ && !/^---/ {
         gsub(/^[ \t]+|[ \t]+$/, "");
         for (i=1; i<=NF; i++) {
             gsub(/^[ \t]+|[ \t]+$/, "", $i);
-            fields[NR,i] = $i;
-        }
-        rows++;
-    }
-    END {
-        for (r=3; r<=rows+2; r++) {
-            printf "• **%s**\n", fields[r,1];
-            for (c=2; c<=NF; c++) {
-                if (fields[r,c] != "") {
-                    printf "  - %s: %s\n", headers[c], fields[r,c];
+            if ($i != "") {
+                printf "• **%s**\n", $1;
+                for (j=2; j<=NF; j++) {
+                    if ($j != "" && h[j] != "") {
+                        printf "  - %s: %s\n", h[j], $j;
+                    }
                 }
+                printf "\n";
+                break;
             }
-            printf "\n";
         }
-    }' headers="$2"
+    }'
 }
 
 # تابع اصلی تولید گزارش
 generate_security_report() {
     # حملات 24 ساعت اخیر
     local attacks=$(sudo cscli alerts list --since 24h 2>/dev/null)
+    local attacks_report
     if [ -z "$attacks" ] || echo "$attacks" | grep -q "No active alerts"; then
-        local attacks_report="• هیچ حمله‌ای یافت نشد\n"
+        attacks_report="• هیچ حمله‌ای یافت نشد\n"
     else
-        local attacks_report=$(parse_table "$attacks" "سناریو|IP|زمان|کشور")
+        attacks_report=$(parse_table "$attacks" "|سناریو|IP|زمان|کشور")
     fi
 
     # IPهای مسدود شده
     local bans=$(sudo cscli decisions list 2>/dev/null)
+    local bans_report
     if [ -z "$bans" ] || echo "$bans" | grep -q "No active decisions"; then
-        local bans_report="• هیچ IP مسدودی یافت نشد\n"
+        bans_report="• هیچ IP مسدودی یافت نشد\n"
     else
-        local bans_report=$(parse_table "$bans" "IP|علت|مدت|کشور")
+        bans_report=$(parse_table "$bans" "|IP|علت|مدت|کشور")
     fi
 
     # متریکس سیستم
@@ -57,12 +71,14 @@ generate_security_report() {
     local ban_reasons=$(echo "$metrics" | awk '
         /Reason.*Origin/ {
             flag=1; getline; getline;
-            while ($0 !~ /^\+/ && $0 !~ /^$/) {
+            while ($0 !~ /^\+/ && $0 !~ /^$/ && $0 !~ /^---/) {
                 if ($0 ~ /\|/) {
                     gsub(/^[ \t]+|[ \t]+$/, "");
                     split($0, parts, "|");
-                    printf "• **%s**\n  - منبع: %s\n  - اقدام: %s\n  - تعداد: %s\n\n", 
-                        parts[1], parts[2], parts[3], parts[4];
+                    if (parts[1] != "" && parts[4] ~ /^[0-9]+$/) {
+                        printf "• **%s**\n  - منبع: %s\n  - اقدام: %s\n  - تعداد: %s\n\n", 
+                            parts[1], parts[2], parts[3], parts[4];
+                    }
                 }
                 getline;
             }
@@ -72,12 +88,14 @@ generate_security_report() {
     local api_metrics=$(echo "$metrics" | awk '
         /Route.*Method/ {
             flag=1; getline; getline;
-            while ($0 !~ /^\+/ && $0 !~ /^$/) {
+            while ($0 !~ /^\+/ && $0 !~ /^$/ && $0 !~ /^---/) {
                 if ($0 ~ /\|/) {
                     gsub(/^[ \t]+|[ \t]+$/, "");
                     split($0, parts, "|");
-                    printf "• **%s**\n  - روش: %s\n  - تعداد: %s\n\n", 
-                        parts[1], parts[2], parts[3];
+                    if (parts[1] != "" && parts[3] ~ /^[0-9]+$/) {
+                        printf "• **%s**\n  - روش: %s\n  - تعداد: %s\n\n", 
+                            parts[1], parts[2], parts[3];
+                    }
                 }
                 getline;
             }
@@ -87,12 +105,14 @@ generate_security_report() {
     local log_metrics=$(echo "$metrics" | awk '
         /Source.*Lines read/ {
             flag=1; getline;
-            while ($0 !~ /^\+/ && $0 !~ /^$/) {
+            while ($0 !~ /^\+/ && $0 !~ /^$/ && $0 !~ /^---/) {
                 if ($0 ~ /file:\/var\/log/ && $0 ~ /\|/) {
                     gsub(/^[ \t]+|[ \t]+$/, "");
                     split($0, parts, "|");
-                    printf "• **%s**\n  - خوانده‌شده: %s\n  - پردازش‌شده: %s\n  - پردازش‌نشده: %s\n\n", 
-                        parts[1], parts[2], parts[3], parts[4];
+                    if (parts[1] != "" && parts[2] ~ /^[0-9]+$/) {
+                        printf "• **%s**\n  - خوانده‌شده: %s\n  - پردازش‌شده: %s\n  - پردازش‌نشده: %s\n\n", 
+                            parts[1], parts[2], parts[3], parts[4];
+                    }
                 }
                 getline;
             }
@@ -106,14 +126,16 @@ generate_security_report() {
     else
         scenarios_report=$(echo "$scenarios" | awk '
         BEGIN { count = 0; }
-        NR > 2 && !/^\+/ && !/^$/ && !/Name/ && count < 10 {
+        NR > 2 && !/^\+/ && !/^$/ && !/^---/ && !/Name/ && count < 10 {
             gsub(/^[ \t]+|[ \t]+$/, "");
-            split($0, parts, "|");
-            gsub(/^[ \t]+|[ \t]+$/, "", parts[1]);
-            gsub(/^[ \t]+|[ \t]+$/, "", parts[2]);
-            if (parts[1] !~ /^-+$/ && parts[1] != "") {
-                printf "• **%s**\n  - وضعیت: %s\n\n", parts[1], parts[2];
-                count++;
+            if ($0 ~ /\|/) {
+                split($0, parts, "|");
+                gsub(/^[ \t]+|[ \t]+$/, "", parts[1]);
+                gsub(/^[ \t]+|[ \t]+$/, "", parts[2]);
+                if (parts[1] != "" && parts[1] !~ /^-+$/) {
+                    printf "• **%s**\n  - وضعیت: %s\n\n", parts[1], parts[2];
+                    count++;
+                }
             }
         }')
     fi
@@ -141,10 +163,8 @@ generate_security_report() {
 }
 
 # اجرای اصلی
-echo "Starting security report generation..."
+echo "Starting security report generation..." | tee -a "$LOG_FILE"
 report=$(generate_security_report)
-echo "$report" | while IFS= read -r line; do
-    # ارسال به تلگرام (پیاده‌سازی تابع send_telegram را اضافه کنید)
-    echo "$line"
-done
-echo "Report generation completed."
+echo "$report" >> "$LOG_FILE"
+send_telegram "$report"
+echo "Report generation completed." | tee -a "$LOG_FILE"
