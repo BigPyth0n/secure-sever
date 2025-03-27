@@ -55,29 +55,42 @@ send_telegram() {
     local retry_count=0
     local success=0
     local error_msg=""
+    local delay_between_parts=1  # تاخیر بین ارسال بخش‌های مختلف (ثانیه)
 
-    # تقسیم پیام به بخش‌های 4096 کاراکتری
+    # تابع برای فرمت‌بندی بهتر خطاها
+    format_error() {
+        local err="$1"
+        echo "$err" | sed 's/\\n/\n/g' | sed 's/\\"/"/g' | head -n 1 | cut -c1-200
+    }
+
+    # تقسیم پیام به بخش‌های 4096 کاراکتری با حفظ خطوط کامل
     local parts=()
     while [ -n "$message" ]; do
         if [ ${#message} -le 4096 ]; then
             parts+=("$message")
-            message=""
+            break
         else
+            # پیدا کردن آخرین خط کامل قبل از 4096 کاراکتر
             local part="${message:0:4096}"
-            local last_line=$(echo "$part" | grep -o '[^\n]*$')
-            if [ "$last_line" != "$part" ]; then
-                part=$(echo "$part" | sed '$d')
-                message="${message:${#part}}"
-            else
-                parts+=("$part")
-                message="${message:4096}"
+            local last_newline=$(echo "$part" | awk '{print substr($0,length-200)}' | grep -aobP '\n' | tail -1 | cut -d: -f1)
+            
+            if [ -n "$last_newline" ]; then
+                part="${message:0:$((4096 - (${#part} - $last_newline)))}"
             fi
+            
+            parts+=("$part")
+            message="${message:${#part}}"
+            sleep "$delay_between_parts"  # تاخیر بین ارسال بخش‌ها
         fi
     done
 
     for part in "${parts[@]}"; do
         retry_count=0
         success=0
+        
+        # حذف کاراکترهای غیرقابل چاپ
+        part=$(echo "$part" | tr -cd '\11\12\15\40-\176')
+        
         while [ $retry_count -lt $max_retries ]; do
             response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
                 -d "chat_id=$TELEGRAM_CHAT_ID" \
@@ -90,8 +103,8 @@ send_telegram() {
                 break
             else
                 retry_count=$((retry_count + 1))
-                error_msg=$(echo "$response" | grep -o '"description":"[^"]*"' | cut -d'"' -f4 || echo "$response")
-                echo "⚠️ تلاش $retry_count برای ارسال بخش پیام ناموفق بود. خطا: $error_msg"
+                error_msg=$(format_error "$response")
+                echo "⚠️ تلاش $retry_count/$max_retries برای ارسال بخش پیام ناموفق بود. خطا: $error_msg"
                 sleep 2
             fi
         done
@@ -105,6 +118,15 @@ send_telegram() {
     echo "✅ تمام بخش‌های پیام با موفقیت ارسال شدند"
     return 0
 }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -274,29 +296,40 @@ restart_services() {
 
 # تولید گزارش CrowdSec
 generate_crowdsec_report() {
-    local report="<b>📊 گزارش امنیتی CrowdSec</b>\n\n"
+    local report="<b>🛡️ گزارش امنیتی CrowdSec</b>\n"
+    report+="<i>$(date +"%Y/%m/%d %H:%M:%S")</i>\n"
+    report+="⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n\n"
 
-    # آمار تحلیل لاگ‌ها
-    report+="<b>🔍 آمار تحلیل لاگ‌ها:</b>\n"
-    local log_stats=$(sudo cscli metrics --no-color | awk -F'│' '
+    # آمار تحلیل لاگ‌ها با فرمت بهتر
+    report+="<b>📊 آمار تحلیل لاگ‌ها:</b>\n"
+    local log_stats=$(sudo cscli metrics --no-color 2>/dev/null | awk -F'│' '
         /file:\/var\/log/ {
             gsub(/^[ \t]+|[ \t]+$/, "", $1);
             gsub(/^[ \t]+|[ \t]+$/, "", $2);
+            gsub(/^[ \t]+|[ \t]+$/, "", $3);
             if ($2 ~ /^[0-9]+$/) {
-                printf("• <code>%s</code>: %d خط\n", $1, $2);
+                printf("• <b>%s</b>\n   ├ خطوط پردازش شده: %s\n   └ خطوط پارس شده: %s\n", $1, $2, $3);
             }
         }')
 
-    [ -n "$log_stats" ] && report+="$log_stats\n" || report+="• اطلاعاتی یافت نشد\n"
+    if [ -n "$log_stats" ]; then
+        report+="$log_stats\n"
+    else
+        report+="• اطلاعاتی یافت نشد\n"
+    fi
 
-    # تصمیمات امنیتی
-    report+="\n<b>🛡️ تصمیمات امنیتی اخیر:</b>\n"
-    local decisions=$(sudo cscli decisions list --no-color -o json | jq -r '
-        group_by(.reason) | map({
+    # تصمیمات امنیتی با جزئیات بیشتر
+    report+="\n<b>🚨 تصمیمات امنیتی اخیر:</b>\n"
+    local decisions=$(sudo cscli decisions list --no-color -o json 2>/dev/null | jq -r '
+        [group_by(.reason)[] | {
             reason: .[0].reason,
             count: length,
-            ips: (map(.value) | unique | join(", "))
-        })[] | "• " + .reason + ": " + (.count | tostring) + " مورد (IPها: " + .ips + ")"' 2>/dev/null)
+            ips: (map(.value) | unique | join(", ")),
+            scenarios: (map(.scenario) | unique | join(", "))
+        }] | sort_by(.count) | reverse[] | 
+        "• <b>" + .reason + "</b> (" + (.count|tostring) + " مورد)\n" +
+        "   ├ IPها: <code>" + .ips + "</code>\n" +
+        "   └ سناریوها: " + .scenarios' 2>/dev/null)
 
     if [ -n "$decisions" ]; then
         report+="$decisions\n"
@@ -304,14 +337,25 @@ generate_crowdsec_report() {
         report+="• موردی یافت نشد\n"
     fi
 
-    # وضعیت کلی
-    report+="\n<b>📈 وضعیت کلی:</b>\n"
-    local metrics=$(sudo cscli metrics --no-color | awk -F'│' '
-        /Parsers:/ { printf("• پارسرها: %s\n", $2) }
-        /Scenarios:/ { printf("• سناریوها: %s\n", $2) }
-        /Collections:/ { printf("• مجموعه‌ها: %s\n", $2) }
+    # وضعیت کلی با اطلاعات بیشتر
+    report+="\n<b>📈 وضعیت کلی سیستم:</b>\n"
+    local metrics=$(sudo cscli metrics --no-color 2>/dev/null | awk -F'│' '
+        /Parsers:/ { printf("• <b>پارسرها</b>: %s\n", $2) }
+        /Scenarios:/ { printf("• <b>سناریوها</b>: %s\n", $2) }
+        /Collections:/ { printf("• <b>مجموعه‌ها</b>: %s\n", $2) }
+        /Local API:/ { printf("• <b>API محلی</b>: %s\n", $2) }
+        /Local Bouncers:/ { printf("• <b>Bouncerهای محلی</b>: %s\n", $2) }
     ')
     report+="$metrics"
+
+    # وضعیت LAPI
+    report+="\n<b>🔌 وضعیت LAPI:</b>\n"
+    local lapi_status=$(sudo cscli lapi status 2>/dev/null | awk '
+        /URL:/ { printf("• <b>آدرس</b>: %s\n", $2) }
+        /Login:/ { printf("• <b>ورود</b>: %s\n", $2) }
+        /Credentials:/ { printf("• <b>اعتبار</b>: %s\n", $2) }
+    ')
+    report+="${lapi_status:-• اطلاعات در دسترس نیست}\n"
 
     echo -e "$report"
 }
@@ -354,53 +398,79 @@ EOL
 
 # تولید گزارش نهایی
 generate_final_report() {
-    echo "🔄 آماده‌سازی گزارش نهایی..."
+    echo "🔄 در حال آماده‌سازی گزارش نهایی..."
 
+    # اطلاعات سرور
     local SERVER_IP=$(curl -4 -s ifconfig.me || echo "نامشخص")
-    local LOCATION=$(curl -s "http://ip-api.com/line/$SERVER_IP?fields=country,city,isp" | paste -sd ' ' - || echo "نامشخص")
-    local CROWD_SEC_REPORT=$(generate_crowdsec_report)
+    local LOCATION=$(curl -s "http://ip-api.com/json/$SERVER_IP?fields=country,countryCode,city,isp,org,as" 2>/dev/null | \
+                    jq -r '[.country, .city, .isp, .org] | map(select(.)) | join(" | ")' 2>/dev/null || echo "نامشخص")
+    
+    # گزارش امنیتی
+    local SECURITY_REPORT=$(generate_crowdsec_report)
+    
+    # اطلاعات سیستم
+    local UPTIME=$(uptime -p | sed 's/up //')
+    local LOAD_AVG=$(uptime | awk -F'load average: ' '{print $2}')
+    local DISK_USAGE=$(df -h / | awk 'NR==2 {print $5 " از " $2 " (" $3 "/" $4 ")"}')
+    local MEMORY_USAGE=$(free -m | awk 'NR==2 {print $3 "MB از " $2 "MB (" int($3/$2*100) "%)"}')
 
+    # سرویس‌ها
     local SERVICES_INFO=""
-    if [ "${SERVICE_STATUS["portainer"]}" == "فعال" ]; then
-        SERVICES_INFO+="• <a href=\"http://${SERVER_IP}:${PORTAINER_PORT}\">Portainer</a>\n"
-    fi
-    if [ "${SERVICE_STATUS["nginx-proxy-manager"]}" == "فعال" ]; then
-        SERVICES_INFO+="• <a href=\"http://${SERVER_IP}:${NGINX_PROXY_MANAGER_PORT}\">Nginx Proxy Manager</a>\n"
-    fi
-    if [ "${SERVICE_STATUS["code-server"]}" == "فعال" ]; then
-        SERVICES_INFO+="• <a href=\"http://${SERVER_IP}:${CODE_SERVER_PORT}\">Code-Server</a>\n"
-    fi
-    if [ "${SERVICE_STATUS["netdata"]}" == "فعال" ]; then
-        SERVICES_INFO+="• <a href=\"http://${SERVER_IP}:${NETDATA_PORT}\">Netdata</a>\n"
-    fi
+    declare -A SERVICE_PORTS=(
+        ["portainer"]="9000"
+        ["nginx-proxy-manager"]="81"
+        ["code-server"]="8080"
+        ["netdata"]="19999"
+    )
 
-    local FINAL_REPORT="<b>🚀 گزارش نهایی پیکربندی سرور</b>\n\n"
-    FINAL_REPORT+="<b>🕒 زمان:</b> $(date +"%Y/%m/%d %H:%M:%S")\n"
-    FINAL_REPORT+="<b>🌍 IP:</b> <code>${SERVER_IP}</code>\n"
-    FINAL_REPORT+="<b>📍 موقعیت:</b> ${LOCATION}\n"
-    FINAL_REPORT+="<b>🖥️ میزبان:</b> <code>$(hostname)</code>\n\n"
+    for service in "${!SERVICE_STATUS[@]}"; do
+        if [ "${SERVICE_STATUS[$service]}" == "فعال" ]; then
+            local port=${SERVICE_PORTS[$service]}
+            SERVICES_INFO+="• <b>${service^}</b>\n   └ <a href=\"http://${SERVER_IP}:${port}\">http://${SERVER_IP}:${port}</a>\n"
+        fi
+    done
 
+    # ساخت گزارش نهایی
+    local FINAL_REPORT="<b>📡 گزارش جامع سرور</b>\n"
+    FINAL_REPORT+="<i>$(date +"%Y/%m/%d %H:%M:%S")</i>\n"
+    FINAL_REPORT+="⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n\n"
+
+    # بخش اطلاعات سرور
+    FINAL_REPORT+="<b>🖥️ اطلاعات سرور:</b>\n"
+    FINAL_REPORT+="• <b>آیپی:</b> <code>${SERVER_IP}</code>\n"
+    FINAL_REPORT+="• <b>موقعیت:</b> ${LOCATION}\n"
+    FINAL_REPORT+="• <b>میزبان:</b> <code>$(hostname)</code>\n"
+    FINAL_REPORT+="• <b>آپتایم:</b> ${UPTIME}\n"
+    FINAL_REPORT+="• <b>بار سیستم:</b> ${LOAD_AVG}\n"
+    FINAL_REPORT+="• <b>فضای دیسک:</b> ${DISK_USAGE}\n"
+    FINAL_REPORT+="• <b>مصرف حافظه:</b> ${MEMORY_USAGE}\n\n"
+
+    # بخش دسترسی‌ها
     FINAL_REPORT+="<b>🔑 دسترسی‌های اصلی:</b>\n"
-    FINAL_REPORT+="• کاربر اصلی: <code>${NEW_USER}</code>\n"
-    FINAL_REPORT+="• پورت SSH: <code>${SSH_PORT}</code>\n"
-    FINAL_REPORT+="• کاربر SFTP: <code>${SFTP_USER}</code>\n\n"
+    FINAL_REPORT+="• <b>کاربر اصلی:</b> <code>${NEW_USER}</code>\n"
+    FINAL_REPORT+="• <b>پورت SSH:</b> <code>${SSH_PORT}</code>\n"
+    FINAL_REPORT+="• <b>کاربر SFTP:</b> <code>${SFTP_USER}</code>\n\n"
 
-    FINAL_REPORT+="${CROWD_SEC_REPORT}\n"
-
-    FINAL_REPORT+="<b>🛠️ سرویس‌های نصب‌شده:</b>\n"
+    # بخش سرویس‌ها
+    FINAL_REPORT+="<b>🛠️ سرویس‌های فعال:</b>\n"
     if [ -n "$SERVICES_INFO" ]; then
         FINAL_REPORT+="$SERVICES_INFO\n"
     else
-        FINAL_REPORT+="• هیچ سرویس فعالی وجود ندارد\n"
+        FINAL_REPORT+="• هیچ سرویس فعالی وجود ندارد\n\n"
     fi
 
-    FINAL_REPORT+="<b>🔒 وضعیت امنیتی:</b>\n"
-    FINAL_REPORT+="• فایروال: فعال\n"
-    FINAL_REPORT+="• آخرین بروزرسانی: $(date +"%Y/%m/%d %H:%M")\n"
-    FINAL_REPORT+="• <a href=\"https://app.crowdsec.net/alerts\">مشاهده آلرت‌ها در کنسول CrowdSec</a>\n"
+    # افزودن گزارش امنیتی
+    FINAL_REPORT+="$SECURITY_REPORT"
 
+    # بخش پایانی
+    FINAL_REPORT+="\n<b>📌 نکات امنیتی:</b>\n"
+    FINAL_REPORT+="• فایروال فعال و پیکربندی شده\n"
+    FINAL_REPORT+="• آخرین بروزرسانی امنیتی: $(date -d "@$(stat -c %Y /var/lib/apt/periodic/update-success-stamp)" +"%Y/%m/%d %H:%M" 2>/dev/null || echo "نامشخص")\n"
+    FINAL_REPORT+="• <a href=\"https://app.crowdsec.net/\">مشاهده وضعیت در کنسول CrowdSec</a>\n"
+
+    # ارسال گزارش
     send_telegram "$FINAL_REPORT"
-    echo "✅ گزارش نهایی ارسال شد"
+    echo "✅ گزارش نهایی با موفقیت ارسال شد"
 }
 
 
@@ -454,17 +524,80 @@ install_jq() {
     fi
 }
 
+
+
+
+
+
+
+
+
+
+
+# =============================================
+# تابع ریستارت سرویس‌ها
+# =============================================
+restart_services() {
+    local NEW_USER="$1"
+    local RESTART_REPORT="🔄 <b>ریستارت سرویس‌ها و کانتینرها</b>\n"
+    RESTART_REPORT+="⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯\n"
+
+    # لیست سرویس‌های systemd
+    local systemd_services=(
+        "docker"
+        "code-server@$NEW_USER.service"
+        "netdata"
+        "crowdsec"
+        "ufw"
+    )
+
+    # لیست کانتینرهای Docker
+    local docker_containers=(
+        "portainer"
+        "nginx-proxy-manager"
+    )
+
+    # ریستارت سرویس‌های systemd
+    RESTART_REPORT+="\n<b>🛠️ سرویس‌های سیستم:</b>\n"
+    for service in "${systemd_services[@]}"; do
+        if systemctl is-active "$service" >/dev/null 2>&1; then
+            systemctl restart "$service" && \
+            RESTART_REPORT+="• <b>${service}</b>: ✅ ریستارت موفق\n" || \
+            RESTART_REPORT+="• <b>${service}</b>: ❌ خطا در ریستارت\n"
+        else
+            RESTART_REPORT+="• <b>${service}</b>: ⚠️ غیرفعال\n"
+        fi
+    done
+
+    # ریستارت کانتینرهای Docker
+    RESTART_REPORT+="\n<b>🐳 کانتینرهای Docker:</b>\n"
+    for container in "${docker_containers[@]}"; do
+        if docker ps -q -f name="$container" >/dev/null 2>&1; then
+            docker restart "$container" && \
+            RESTART_REPORT+="• <b>${container}</b>: ✅ ریستارت موفق\n" || \
+            RESTART_REPORT+="• <b>${container}</b>: ❌ خطا در ریستارت\n"
+        else
+            RESTART_REPORT+="• <b>${container}</b>: ⚠️ در حال اجرا نیست\n"
+        fi
+    done
+
+    # ارسال گزارش
+    send_telegram "$RESTART_REPORT"
+    return 0
+}
+
 # =============================================
 # تابع اصلی (Main Function)
 # =============================================
 main() {
     # گزارش شروع
-    START_REPORT="
-🔥 **شروع فرآیند پیکربندی سرور**  
-🕒 زمان: $(date +"%Y-%m-%d %H:%M:%S")  
-🌍 IP: $(curl -s ifconfig.me || echo "نامشخص")  
-📌 کاربر اصلی: $NEW_USER  
-🔒 پورت SSH: $SSH_PORT  
+    local START_REPORT="
+🔥 <b>شروع فرآیند پیکربندی سرور</b>  
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+🕒 <b>زمان:</b> $(date +"%Y-%m-%d %H:%M:%S")  
+🌍 <b>IP:</b> <code>$(curl -s ifconfig.me || echo "نامشخص")</code>  
+📌 <b>کاربر اصلی:</b> <code>$NEW_USER</code>  
+🔒 <b>پورت SSH:</b> <code>$SSH_PORT</code>  
 "
     send_telegram "$START_REPORT"
 
@@ -678,9 +811,11 @@ EOL
     # 15. گزارش نهایی
     generate_final_report
 
+    # 16. ریستارت نهایی سرویس‌ها
+    restart_services "$NEW_USER"
+
     echo "🎉 پیکربندی سرور با موفقیت تکمیل شد!"
 }
 
 # اجرای تابع اصلی
 main "$@"
-exit 0
