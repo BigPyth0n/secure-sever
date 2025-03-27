@@ -45,8 +45,7 @@ send_telegram() {
     while [ $retry_count -lt $max_retries ]; do
         response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -d "chat_id=$TELEGRAM_CHAT_ID" \
-            -d "text=$message" \
-            -d "parse_mode=Markdown" 2>&1)
+            -d "text=$message" 2>&1)  # حذف parse_mode=Markdown
         
         if [[ $response =~ \"ok\":true ]]; then
             success=1
@@ -64,6 +63,8 @@ send_telegram() {
     fi
     return 0
 }
+
+
 
 # بررسی موفقیت عملیات و گزارش‌دهی
 check_success() {
@@ -222,39 +223,55 @@ restart_services() {
     send_telegram "$RESTART_REPORT"
 }
 
+
+
+
 # تولید گزارش CrowdSec
+#-------------------------------------------------
 generate_crowdsec_report() {
-    local report="🛡️ **گزارش امنیتی CrowdSec:**\n"
-    report+="📊 **آمار تحلیل لاگ‌ها:**\n"
+    local report="گزارش امنیتی CrowdSec\n"
+    report+="آمار تحلیل لاگ‌ها:\n"
     
-    local log_stats=$(cscli metrics | awk -F'|' '
+    local log_stats=$(sudo cscli metrics | awk -F'|' '
         /file:\/var\/log/ {
-            gsub(/^[ \t]+|[ \t]+$/, "", $1);
-            gsub(/^[ \t]+|[ \t]+$/, "", $3);
-            if ($3 ~ /^[0-9]+$/) {
-                print "   - " $1 ": " $3 " خط"
+            gsub(/^[ \t]+|[ \t]+$/, "", $1);  # ستون Source
+            gsub(/^[ \t]+|[ \t]+$/, "", $2);  # ستون Lines read
+            if ($2 ~ /^[0-9]+$/) {
+                print "  " $1 ": " $2 " خط"
             }
         }
     ')
     
-    [ -n "$log_stats" ] && report+="$log_stats\n" || report+="   - اطلاعاتی یافت نشد\n"
+    [ -n "$log_stats" ] && report+="$log_stats\n" || report+="  اطلاعاتی یافت نشد\n"
     
-    report+="\n🔒 **تصمیمات امنیتی اخیر:**\n"
-    local decision_stats=$(cscli metrics | awk -F'|' '
-        /ban/ {
-            gsub(/^[ \t]+|[ \t]+$/, "", $1);
-            gsub(/^[ \t]+|[ \t]+$/, "", $4);
+    report+="\nتصمیمات امنیتی اخیر:\n"
+    local decision_stats=$(sudo cscli metrics | awk -F'|' '
+        /ban/ && $1 !~ /Reason/ && $1 !~ /^[-─]*$/ {
+            gsub(/^[ \t]+|[ \t]+$/, "", $1);  # ستون Reason
+            gsub(/^[ \t]+|[ \t]+$/, "", $4);  # ستون Count
             if ($4 ~ /^[0-9]+$/) {
-                print "   - " $1 ": " $4 " مورد"
+                print "  " $1 ": " $4 " مورد"
             }
         }
     ')
     
-    [ -n "$decision_stats" ] && report+="$decision_stats\n" || report+="   - اطلاعاتی یافت نشد\n"
+    [ -n "$decision_stats" ] && report+="$decision_stats\n" || report+="  اطلاعاتی یافت نشد\n"
     
     echo "$report"
 }
 
+
+
+
+
+
+
+
+
+
+
+
+#-------------------------------------------------
 # اعمال تنظیمات امنیتی سیستم
 configure_security() {
     echo "🔄 اعمال تنظیمات امنیتی..."
@@ -277,63 +294,86 @@ EOL
     check_success "اعمال تنظیمات امنیتی"
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # تولید گزارش نهایی
 generate_final_report() {
     echo "🔄 آماده‌سازی گزارش نهایی..."
     
-    # دریافت IP نسخه 4
     local SERVER_IP=$(curl -4 -s ifconfig.me || echo "نامشخص")
-    # دریافت اطلاعات موقعیت سرور
     local LOCATION=$(curl -s "http://ip-api.com/line/$SERVER_IP?fields=country,city,isp" | paste -sd ' ' - || echo "نامشخص")
-    # گزارش CrowdSec (فرض می‌کنیم این تابع از قبل تعریف شده)
     local CROWD_SEC_REPORT=$(generate_crowdsec_report)
     
-    # ساخت لینک سرویس‌ها
     local SERVICES_INFO=""
     if [ "${SERVICE_STATUS["portainer"]}" == "فعال" ]; then
-        SERVICES_INFO+="   - [Portainer](http://${SERVER_IP}:${PORTAINER_PORT})\n"
+        SERVICES_INFO+="  http://${SERVER_IP}:${PORTAINER_PORT} - Portainer\n"
     fi
     if [ "${SERVICE_STATUS["nginx-proxy-manager"]}" == "فعال" ]; then
-        SERVICES_INFO+="   - [Nginx Proxy Manager](http://${SERVER_IP}:${NGINX_PROXY_MANAGER_PORT})\n"
+        SERVICES_INFO+="  http://${SERVER_IP}:${NGINX_PROXY_MANAGER_PORT} - Nginx Proxy Manager\n"
     fi
     if [ "${SERVICE_STATUS["code-server"]}" == "فعال" ]; then
-        SERVICES_INFO+="   - [Code-Server](http://${SERVER_IP}:${CODE_SERVER_PORT})\n"
+        SERVICES_INFO+="  http://${SERVER_IP}:${CODE_SERVER_PORT} - Code-Server\n"
     fi
     if [ "${SERVICE_STATUS["netdata"]}" == "فعال" ]; then
-        SERVICES_INFO+="   - [Netdata](http://${SERVER_IP}:${NETDATA_PORT})\n"
+        SERVICES_INFO+="  http://${SERVER_IP}:${NETDATA_PORT} - Netdata\n"
     fi
 
-    # ساخت گزارش نهایی با فرمت Markdown
-    local FINAL_REPORT="*🚀 گزارش نهایی پیکربندی سرور*\n\n"
-    FINAL_REPORT+="*⏳ زمان:* $(date +"%Y-%m-%d %H:%M:%S")\n\n"
-    FINAL_REPORT+="*🔹 مشخصات سرور:*\n"
-    FINAL_REPORT+="   - *IP:* \`${SERVER_IP}\`\n"
-    FINAL_REPORT+="   - *موقعیت:* ${LOCATION}\n"
-    FINAL_REPORT+="   - *میزبان:* \`$(hostname)\`\n\n"
-    FINAL_REPORT+="*🔹 دسترسی‌های اصلی:*\n"
-    FINAL_REPORT+="   - *کاربر اصلی:* \`${NEW_USER}\`\n"
-    FINAL_REPORT+="   - *SSH Port:* \`${SSH_PORT}\`\n"
-    FINAL_REPORT+="   - *کاربر SFTP:* \`${SFTP_USER}\`\n\n"
+    local FINAL_REPORT="گزارش نهایی پیکربندی سرور\n\n"
+    FINAL_REPORT+="زمان: $(date +"%Y-%m-%d %H:%M:%S")\n\n"
+    FINAL_REPORT+="مشخصات سرور:\n"
+    FINAL_REPORT+="  IP: ${SERVER_IP}\n"
+    FINAL_REPORT+="  موقعیت: ${LOCATION}\n"
+    FINAL_REPORT+="  میزبان: $(hostname)\n\n"
+    FINAL_REPORT+="دسترسی‌های اصلی:\n"
+    FINAL_REPORT+="  کاربر اصلی: ${NEW_USER}\n"
+    FINAL_REPORT+="  SSH Port: ${SSH_PORT}\n"
+    FINAL_REPORT+="  کاربر SFTP: ${SFTP_USER}\n\n"
     FINAL_REPORT+="${CROWD_SEC_REPORT}\n\n"
-    FINAL_REPORT+="*🔹 سرویس‌های نصب‌شده:*\n"
+    FINAL_REPORT+="سرویس‌های نصب‌شده:\n"
     if [ -n "$SERVICES_INFO" ]; then
         FINAL_REPORT+="$SERVICES_INFO\n"
     else
-        FINAL_REPORT+="   - هیچ سرویس فعالی وجود ندارد\n"
+        FINAL_REPORT+="  هیچ سرویس فعالی وجود ندارد\n"
     fi
-    FINAL_REPORT+="\n*🔹 وضعیت CrowdSec:*\n"
-    FINAL_REPORT+="   - *سرویس:* ${SERVICE_STATUS["crowdsec"]:-نامشخص}\n"
-    FINAL_REPORT+="   - *کنسول:* ${SERVICE_STATUS["crowdsec_console"]:-نامشخص}\n"
-    FINAL_REPORT+="   - *ایمیل:* \`${CROWD_SEC_EMAIL}\`\n"
-    FINAL_REPORT+="   - [مشاهده آلرت‌ها](https://app.crowdsec.net/alerts)\n\n"
-    FINAL_REPORT+="*🔐 وضعیت امنیتی:*\n"
-    FINAL_REPORT+="   - *فایروال:* ✅ فعال\n"
-    FINAL_REPORT+="   - *آخرین بروزرسانی:* $(date +"%Y-%m-%d %H:%M")"
+    FINAL_REPORT+="\nوضعیت CrowdSec:\n"
+    FINAL_REPORT+="  سرویس: ${SERVICE_STATUS["crowdsec"]:-نامشخص}\n"
+    FINAL_REPORT+="  کنسول: ${SERVICE_STATUS["crowdsec_console"]:-نامشخص}\n"
+    FINAL_REPORT+="  ایمیل: ${CROWD_SEC_EMAIL}\n"
+    FINAL_REPORT+="  مشاهده آلرت‌ها: https://app.crowdsec.net/alerts\n\n"
+    FINAL_REPORT+="وضعیت امنیتی:\n"
+    FINAL_REPORT+="  فایروال: فعال\n"
+    FINAL_REPORT+="  آخرین بروزرسانی: $(date +"%Y-%m-%d %H:%M")"
     
-    # ارسال گزارش به تلگرام
     send_telegram "$FINAL_REPORT"
     echo "✅ گزارش نهایی ارسال شد"
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # =============================================
 # تابع اصلی (Main Function)
