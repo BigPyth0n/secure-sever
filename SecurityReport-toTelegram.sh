@@ -99,30 +99,36 @@ generate_security_report() {
 
     # متریکس ساده‌شده
     local metrics_summary=""
-    metrics_summary+=$(sudo cscli metrics 2>/dev/null | awk -F'│' '
+    # لاگ‌های خوانده‌شده
+    local log_lines=$(sudo cscli metrics 2>/dev/null | awk -F'│' '
         /file:\/var\/log/ { 
             gsub(/^[ \t]+|[ \t]+$/, "", $1); 
             gsub(/^[ \t]+|[ \t]+$/, "", $2); 
             if ($2 ~ /^[0-9]+$/) { 
-                printf("├─ %s: %s خطوط خوانده‌شده\n", $1, $2) 
+                printf("├─ <b>%s</b>: %s خط\n", $1, $2) 
             } 
         }
+    ' | sed '$s/├─/└─/')
+    # دلایل مسدودسازی
+    local ban_reasons=$(sudo cscli metrics 2>/dev/null | awk -F'│' '
         /Reason/ { getline; while ($0 ~ /\|/) { 
             gsub(/^[ \t]+|[ \t]+$/, "", $2); 
             gsub(/^[ \t]+|[ \t]+$/, "", $5); 
             if ($5 ~ /^[0-9]+$/) { 
-                printf("├─ %s: %s مورد\n", $2, $5) 
+                printf("├─ <b>%s</b>: %s مورد\n", $2, $5) 
             }; getline 
         }}
     ' | sed '$s/├─/└─/')
+    metrics_summary+="${log_lines}\n${ban_reasons}"
 
     # ساخت گزارش
     local report=""
     report+="<b>🛡️ گزارش امنیتی CrowdSec</b>\n"
     report+="<pre>$(date +"%Y-%m-%d %H:%M:%S")</pre>\n"
-    report+="────────────────────\n\n"
-    report+="<b>⏳ دوره زمانی</b>: 24 ساعت اخیر\n"
-    report+="<b>📧 ایمیل</b>: <code>${CONSOLE_EMAIL}</code>\n\n"
+    report+="────────────────────\n"
+    report+="<b>⏳ دوره</b>: 24 ساعت اخیر\n"
+    report+="<b>📧 ایمیل</b>: <code>${CONSOLE_EMAIL}</code>\n"
+    report+="────────────────────\n"
 
     # حملات
     report+="<b>🔴 حملات شناسایی‌شده</b>\n"
@@ -130,14 +136,14 @@ generate_security_report() {
         report+=$(echo "$attacks_report" | jq -r '.[] | 
             "├─ <b>\(.type)</b>\n" +
             "│  ├─ تعداد: \(.count)\n" +
-            "│  ├─ آخرین حمله: \(.last_attack)\n" +
+            "│  ├─ آخرین: \(.last_attack)\n" +
             "│  ├─ کشورها: \(.countries)\n" +
-            "│  └─ نمونه IPها: <code>\(.sample_ips)</code>\n"')
+            "│  └─ IPها: <code>\(.sample_ips)</code>\n"')
         report="${report%├─*}└─${report##*├─}"
     else
         report+="└─ هیچ حمله‌ای یافت نشد\n"
     fi
-    report+="\n"
+    report+="────────────────────\n"
 
     # IPهای مسدود
     report+="<b>🔵 IPهای مسدود‌شده</b>\n"
@@ -151,15 +157,16 @@ generate_security_report() {
     else
         report+="└─ هیچ IP مسدودی یافت نشد\n"
     fi
-    report+="\n"
+    report+="────────────────────\n"
 
     # متریکس
     report+="<b>📊 آمار کلی</b>\n"
     if [ -n "$metrics_summary" ]; then
-        report+="${metrics_summary}\n"
+        report+="${metrics_summary}"
     else
-        report+="└─ اطلاعات در دسترس نیست\n"
+        report+="└─ اطلاعاتی در دسترس نیست\n"
     fi
+    report+="────────────────────\n"
 
     # ارسال گزارش
     send_telegram "$report"
