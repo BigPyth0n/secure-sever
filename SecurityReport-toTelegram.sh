@@ -38,13 +38,9 @@ send_telegram() {
     local message="$1"
     local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
 
-    # تبدیل \n به خط جدید واقعی
     message=$(echo -e "$message")
-
-    # اسکیپ کردن کاراکترهای خاص برای Markdown
     message=$(echo "$message" | sed 's/\*/\\*/g' | sed 's/_/\\_/g' | sed 's/`/\\`/g' | sed 's/|/\\|/g' | sed 's/-/\\-/g' | sed 's/\[/\\[/g' | sed 's/\]/\\]/g' | sed 's/(/\\(/g' | sed 's/)/\\)/g' | sed 's/#/\\#/g' | sed 's/+/\\+/g' | sed 's/!/\\!/g')
 
-    # تقسیم پیام به بخش‌های 4000 کاراکتری
     local parts=()
     local max_length=4000
     while [ -n "$message" ]; do
@@ -64,7 +60,6 @@ send_telegram() {
         fi
     done
 
-    # ارسال هر بخش
     local part_count=1
     for part in "${parts[@]}"; do
         echo "[$timestamp] ارسال بخش $part_count - طول: ${#part}" >> "$LOG_FILE"
@@ -154,19 +149,28 @@ generate_security_report() {
         }
     ')
 
-    # سناریوهای فعال
+    # سناریوهای فعال (نسخه اصلاح شده)
     local scenarios=$(sudo cscli scenarios list -o json 2>/dev/null || echo "خطا در دریافت سناریوها")
     if [ "$(echo "$scenarios" | jq -r 'length')" -eq 0 ]; then
         local scenarios_report="• هیچ سناریوی فعالی یافت نشد\n"
     else
-        local scenarios_report=$(echo "$scenarios" | jq -r '.[] | 
-            if has("status") then 
-                select(.status == "enabled") | "• **\(.name)**\n  - وضعیت: فعال\n" 
-            elif has("activated") then 
-                select(.activated == true) | "• **\(.name)**\n  - وضعیت: فعال\n" 
-            else 
-                "• **\(.name)**\n  - وضعیت: نامشخص\n" 
+        local scenarios_report=$(echo "$scenarios" | jq -r '
+            if type == "array" then
+                .[] | 
+                if .status? == "enabled" then
+                    "• **\(.name)**\n  - وضعیت: فعال\n"
+                elif .activated? == true then
+                    "• **\(.name)**\n  - وضعیت: فعال\n"
+                else
+                    empty
+                end
+            else
+                empty
             end' | head -n 10)
+        
+        if [ -z "$scenarios_report" ]; then
+            scenarios_report="• اطلاعات وضعیت سناریوها در دسترس نیست\n"
+        fi
     fi
 
     # ساخت گزارش
@@ -192,7 +196,7 @@ generate_security_report() {
     report+="${log_metrics:-• اطلاعاتی در دسترس نیست}\n"
     report+="────────────────────  \n"
     report+="**🔧 سناریوهای فعال (10 مورد اول)**  \n"
-    report+="${scenarios_report:-• اطلاعاتی در دسترس نیست}\n"
+    report+="${scenarios_report}\n"
     report+="────────────────────  \n"
 
     send_telegram "$report"
