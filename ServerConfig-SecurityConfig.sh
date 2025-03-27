@@ -281,16 +281,29 @@ EOL
 generate_final_report() {
     echo "🔄 آماده‌سازی گزارش نهایی..."
     
-    local SERVER_IP=$(curl -s ifconfig.me || echo "نامشخص")
-    local LOCATION=$(curl -s http://ip-api.com/line/$SERVER_IP?fields=country,city,isp | paste -sd ' ' - || echo "نامشخص")
+    # دریافت IP نسخه 4
+    local SERVER_IP=$(curl -4 -s ifconfig.me || echo "نامشخص")
+    # دریافت اطلاعات موقعیت سرور
+    local LOCATION=$(curl -s "http://ip-api.com/line/$SERVER_IP?fields=country,city,isp" | paste -sd ' ' - || echo "نامشخص")
+    # گزارش CrowdSec (فرض می‌کنیم این تابع از قبل تعریف شده)
     local CROWD_SEC_REPORT=$(generate_crowdsec_report)
     
+    # ساخت لینک سرویس‌ها
     local SERVICES_INFO=""
-    [ "${SERVICE_STATUS["portainer"]}" == "فعال" ] && SERVICES_INFO+="   - [Portainer](http://${SERVER_IP}:${PORTAINER_PORT})\n"
-    [ "${SERVICE_STATUS["nginx-proxy-manager"]}" == "فعال" ] && SERVICES_INFO+="   - [Nginx Proxy Manager](http://${SERVER_IP}:${NGINX_PROXY_MANAGER_PORT})\n"
-    [ "${SERVICE_STATUS["code-server"]}" == "فعال" ] && SERVICES_INFO+="   - [Code-Server](http://${SERVER_IP}:${CODE_SERVER_PORT})\n"
-    [ "${SERVICE_STATUS["netdata"]}" == "فعال" ] && SERVICES_INFO+="   - [Netdata](http://${SERVER_IP}:${NETDATA_PORT})\n"
+    if [ "${SERVICE_STATUS["portainer"]}" == "فعال" ]; then
+        SERVICES_INFO+="   - [Portainer](http://${SERVER_IP}:${PORTAINER_PORT})\n"
+    fi
+    if [ "${SERVICE_STATUS["nginx-proxy-manager"]}" == "فعال" ]; then
+        SERVICES_INFO+="   - [Nginx Proxy Manager](http://${SERVER_IP}:${NGINX_PROXY_MANAGER_PORT})\n"
+    fi
+    if [ "${SERVICE_STATUS["code-server"]}" == "فعال" ]; then
+        SERVICES_INFO+="   - [Code-Server](http://${SERVER_IP}:${CODE_SERVER_PORT})\n"
+    fi
+    if [ "${SERVICE_STATUS["netdata"]}" == "فعال" ]; then
+        SERVICES_INFO+="   - [Netdata](http://${SERVER_IP}:${NETDATA_PORT})\n"
+    fi
 
+    # ساخت گزارش نهایی با فرمت Markdown
     local FINAL_REPORT="*🚀 گزارش نهایی پیکربندی سرور*\n\n"
     FINAL_REPORT+="*⏳ زمان:* $(date +"%Y-%m-%d %H:%M:%S")\n\n"
     FINAL_REPORT+="*🔹 مشخصات سرور:*\n"
@@ -303,7 +316,11 @@ generate_final_report() {
     FINAL_REPORT+="   - *کاربر SFTP:* \`${SFTP_USER}\`\n\n"
     FINAL_REPORT+="${CROWD_SEC_REPORT}\n\n"
     FINAL_REPORT+="*🔹 سرویس‌های نصب‌شده:*\n"
-    [ -n "$SERVICES_INFO" ] && FINAL_REPORT+="$SERVICES_INFO\n" || FINAL_REPORT+="   - هیچ سرویس فعالی وجود ندارد\n"
+    if [ -n "$SERVICES_INFO" ]; then
+        FINAL_REPORT+="$SERVICES_INFO\n"
+    else
+        FINAL_REPORT+="   - هیچ سرویس فعالی وجود ندارد\n"
+    fi
     FINAL_REPORT+="\n*🔹 وضعیت CrowdSec:*\n"
     FINAL_REPORT+="   - *سرویس:* ${SERVICE_STATUS["crowdsec"]:-نامشخص}\n"
     FINAL_REPORT+="   - *کنسول:* ${SERVICE_STATUS["crowdsec_console"]:-نامشخص}\n"
@@ -313,8 +330,9 @@ generate_final_report() {
     FINAL_REPORT+="   - *فایروال:* ✅ فعال\n"
     FINAL_REPORT+="   - *آخرین بروزرسانی:* $(date +"%Y-%m-%d %H:%M")"
     
+    # ارسال گزارش به تلگرام
     send_telegram "$FINAL_REPORT"
-    echo "✅ گزارش نهایی با موفقیت ارسال شد"
+    echo "✅ گزارش نهایی ارسال شد"
 }
 
 # =============================================
