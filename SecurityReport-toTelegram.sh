@@ -44,11 +44,7 @@ send_telegram() {
     # اسکیپ کردن کاراکترهای خاص برای Markdown
     message=$(echo "$message" | sed 's/\*/\\*/g' | sed 's/_/\\_/g' | sed 's/`/\\`/g' | sed 's/|/\\|/g' | sed 's/-/\\-/g' | sed 's/\[/\\[/g' | sed 's/\]/\\]/g' | sed 's/(/\\(/g' | sed 's/)/\\)/g' | sed 's/#/\\#/g' | sed 's/+/\\+/g' | sed 's/!/\\!/g')
 
-    # ذخیره پیام برای دیباگ
-    echo "[$timestamp] پیام قبل از تقسیم:\n$message" >> "$LOG_FILE"
-    echo "[$timestamp] طول پیام: ${#message}" >> "$LOG_FILE"
-
-    # تقسیم پیام به بخش‌های 4000 کاراکتری (کمی کمتر از 4096 برای احتیاط)
+    # تقسیم پیام به بخش‌های 4000 کاراکتری
     local parts=()
     local max_length=4000
     while [ -n "$message" ]; do
@@ -91,7 +87,7 @@ send_telegram() {
 generate_security_report() {
     install_prerequisites || return 1
 
-    # حملات 24 ساعت اخیر (با فرمت JSON)
+    # حملات 24 ساعت اخیر
     local attacks=$(sudo cscli alerts list --since 24h -o json 2>/dev/null || echo "خطا در دریافت حملات")
     if [ "$(echo "$attacks" | jq -r 'length')" -eq 0 ]; then
         local attacks_report="• هیچ حمله‌ای یافت نشد\n"
@@ -99,7 +95,7 @@ generate_security_report() {
         local attacks_report=$(echo "$attacks" | jq -r '.[] | "• **سناریو: \(.scenario)**\n  - IP: \(.source.ip)\n  - زمان: \(.created_at)\n  - کشور: \(.source.scope)\n"')
     fi
 
-    # IPهای مسدود شده (با فرمت JSON)
+    # IPهای مسدود شده
     local bans=$(sudo cscli decisions list -o json 2>/dev/null || echo "خطا در دریافت IPهای مسدود")
     if [ "$(echo "$bans" | jq -r 'length')" -eq 0 ]; then
         local bans_report="• هیچ IP مسدودی یافت نشد\n"
@@ -113,7 +109,7 @@ generate_security_report() {
 
     # پردازش متریکس لاگ‌ها
     local log_metrics=$(echo "$metrics" | awk '
-        /^\+.*\+$/ {next} # خطوط جداکننده را نادیده بگیر
+        /^\+.*\+$/ {next}
         /file:\/var\/log/ {
             gsub(/^[ \t]+|[ \t]+$/, "");
             split($0, parts, "|");
@@ -127,7 +123,7 @@ generate_security_report() {
 
     # پردازش دلایل مسدودسازی
     local ban_reasons=$(echo "$metrics" | awk '
-        /^\+.*\+$/ {next} # خطوط جداکننده را نادیده بگیر
+        /^\+.*\+$/ {next}
         /Reason.*Count/ {flag=1; next}
         flag && /^[^+]/ {
             gsub(/^[ \t]+|[ \t]+$/, "");
@@ -144,7 +140,7 @@ generate_security_report() {
 
     # پردازش درخواست‌های API
     local api_metrics=$(echo "$metrics" | awk '
-        /^\+.*\+$/ {next} # خطوط جداکننده را نادیده بگیر
+        /^\+.*\+$/ {next}
         /Route.*Hits/ {flag=1; next}
         flag && /^[^+]/ {
             gsub(/^[ \t]+|[ \t]+$/, "");
@@ -158,12 +154,19 @@ generate_security_report() {
         }
     ')
 
-    # سناریوهای فعال (با فرمت JSON)
+    # سناریوهای فعال
     local scenarios=$(sudo cscli scenarios list -o json 2>/dev/null || echo "خطا در دریافت سناریوها")
     if [ "$(echo "$scenarios" | jq -r 'length')" -eq 0 ]; then
         local scenarios_report="• هیچ سناریوی فعالی یافت نشد\n"
     else
-        local scenarios_report=$(echo "$scenarios" | jq -r '.[] | select(.activated == true) | "• **\(.name)**\n  - وضعیت: \(if .status == "enabled" then "فعال" else "غیرفعال" end)\n"' | head -n 10)
+        local scenarios_report=$(echo "$scenarios" | jq -r '.[] | 
+            if has("status") then 
+                select(.status == "enabled") | "• **\(.name)**\n  - وضعیت: فعال\n" 
+            elif has("activated") then 
+                select(.activated == true) | "• **\(.name)**\n  - وضعیت: فعال\n" 
+            else 
+                "• **\(.name)**\n  - وضعیت: نامشخص\n" 
+            end' | head -n 10)
     fi
 
     # ساخت گزارش
@@ -196,9 +199,9 @@ generate_security_report() {
 }
 
 main() {
-    echo "Starting security report generation..."
+    echo "Starting security report generation..." | tee -a "$LOG_FILE"
     generate_security_report
-    echo "Report generation completed. Check $LOG_FILE or Telegram for results."
+    echo "Report generation completed. Check $LOG_FILE or Telegram for results." | tee -a "$LOG_FILE"
 }
 
 main
