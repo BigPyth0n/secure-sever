@@ -41,18 +41,44 @@ send_telegram() {
     # تبدیل \n به خط جدید واقعی
     message=$(echo -e "$message")
 
-    local response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
-        -d "chat_id=$TELEGRAM_CHAT_ID" \
-        -d "text=$message" \
-        -d "parse_mode=Markdown" 2>&1)
+    # اسکیپ کردن کاراکترهای خاص برای Markdown
+    message=$(echo "$message" | sed 's/\*/\\*/g' | sed 's/_/\\_/g' | sed 's/`/\\`/g')
 
-    if echo "$response" | grep -q '"ok":true'; then
-        echo "[$timestamp] ✅ ارسال موفق" | tee -a "$LOG_FILE"
-        return 0
-    else
-        echo "[$timestamp] ❌ خطا: $response" | tee -a "$LOG_FILE"
-        return 1
-    fi
+    # ذخیره پیام برای دیباگ
+    echo "[$timestamp] پیام قبل از ارسال:\n$message" >> "$LOG_FILE"
+
+    # تقسیم پیام به بخش‌های 4096 کاراکتری
+    local parts=()
+    while [ -n "$message" ]; do
+        if [ ${#message} -le 4096 ]; then
+            parts+=("$message")
+            break
+        else
+            local part="${message:0:4096}"
+            local last_newline=$(echo "$part" | grep -aob '\n' | tail -1 | cut -d: -f1)
+            if [ -n "$last_newline" ]; then
+                part="${message:0:$((last_newline + 1))}"
+            fi
+            parts+=("$part")
+            message="${message:${#part}}"
+        fi
+    done
+
+    # ارسال هر بخش
+    for part in "${parts[@]}"; do
+        local response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -d "chat_id=$TELEGRAM_CHAT_ID" \
+            -d "text=$part" \
+            -d "parse_mode=Markdown" 2>&1)
+
+        if echo "$response" | grep -q '"ok":true'; then
+            echo "[$timestamp] ✅ ارسال موفق" | tee -a "$LOG_FILE"
+        else
+            echo "[$timestamp] ❌ خطا: $response" | tee -a "$LOG_FILE"
+            return 1
+        fi
+    done
+    return 0
 }
 
 generate_security_report() {
