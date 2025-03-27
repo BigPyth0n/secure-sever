@@ -61,7 +61,6 @@ send_telegram() {
             if [ -n "$last_newline" ] && [ "$last_newline" -gt 0 ]; then
                 part="${message:0:$((last_newline + 1))}"
             else
-                # اگه خط جدید پیدا نشد، یه خط جدید اضافه می‌کنیم
                 part="${message:0:$max_length}\n"
             fi
             parts+=("$part")
@@ -114,10 +113,14 @@ generate_security_report() {
             }')
     fi
 
+    # متریکس خام برای دیباگ
+    local metrics=$(sudo cscli metrics 2>/dev/null || echo "خطا در دریافت متریکس")
+    echo "Metrics Raw:\n$metrics" >> "$LOG_FILE"
+
     # متریکس: لاگ‌ها
-    local log_metrics=$(sudo cscli metrics 2>/dev/null | awk '
-        BEGIN { FS="│"; found=0 }
-        /Source.*Lines read.*Lines parsed.*Lines unparsed/ { found=1; getline; next }
+    local log_metrics=$(echo "$metrics" | awk '
+        BEGIN { found=0 }
+        /Source[[:space:]]+Lines read[[:space:]]+Lines parsed[[:space:]]+Lines unparsed/ { found=1; getline; next }
         found && /file:\/var\/log/ { 
             gsub(/^[ \t]+|[ \t]+$/, "", $1); 
             gsub(/^[ \t]+|[ \t]+$/, "", $2); 
@@ -129,11 +132,12 @@ generate_security_report() {
         }
         /Local API Decisions/ { found=0 }
     ')
+    echo "Log Metrics Extracted:\n$log_metrics" >> "$LOG_FILE"
 
     # متریکس: دلایل مسدودسازی
-    local ban_reasons=$(sudo cscli metrics 2>/dev/null | awk '
-        BEGIN { FS="│"; found=0 }
-        /Reason.*Origin.*Action.*Count/ { found=1; getline; next }
+    local ban_reasons=$(echo "$metrics" | awk '
+        BEGIN { found=0 }
+        /Reason[[:space:]]+Origin[[:space:]]+Action[[:space:]]+Count/ { found=1; getline; next }
         found && /\|/ { 
             gsub(/^[ \t]+|[ \t]+$/, "", $2); 
             gsub(/^[ \t]+|[ \t]+$/, "", $3); 
@@ -145,11 +149,12 @@ generate_security_report() {
         }
         /Local API Metrics/ { found=0 }
     ')
+    echo "Ban Reasons Extracted:\n$ban_reasons" >> "$LOG_FILE"
 
     # متریکس: درخواست‌های API
-    local api_metrics=$(sudo cscli metrics 2>/dev/null | awk '
-        BEGIN { FS="│"; found=0 }
-        /Route.*Method.*Hits/ { found=1; getline; next }
+    local api_metrics=$(echo "$metrics" | awk '
+        BEGIN { found=0 }
+        /Route[[:space:]]+Method[[:space:]]+Hits/ { found=1; getline; next }
         found && /\|/ { 
             gsub(/^[ \t]+|[ \t]+$/, "", $2); 
             gsub(/^[ \t]+|[ \t]+$/, "", $3); 
@@ -160,12 +165,14 @@ generate_security_report() {
         }
         /Local API Machines Metrics/ { found=0 }
     ')
+    echo "API Metrics Extracted:\n$api_metrics" >> "$LOG_FILE"
 
     # سناریوهای فعال (محدود به 10 مورد و حذف خطوط جداکننده)
     local scenarios=$(sudo cscli scenarios list 2>/dev/null | awk '
         NR>2 && !/^-+$/ && !/^Name/ && NR<=12 { 
             printf("• **%s**\n  - وضعیت: %s\n", $1, $2) 
         }')
+    echo "Scenarios Extracted:\n$scenarios" >> "$LOG_FILE"
 
     # ساخت گزارش
     local report=""
