@@ -80,10 +80,60 @@ generate_security_report() {
             }')
     fi
 
-    # متریکس: خام
-    local metrics=$(sudo cscli metrics 2>/dev/null || echo "خطا در دریافت متریکس")
+    # متریکس: لاگ‌ها
+    local log_metrics=$(sudo cscli metrics 2>/dev/null | awk '
+        BEGIN { FS="│"; found=0 }
+        /Source.*Lines read.*Lines parsed.*Lines unparsed/ { found=1; getline; next }
+        found && /file:\/var\/log/ { 
+            gsub(/^[ \t]+|[ \t]+$/, "", $1); 
+            gsub(/^[ \t]+|[ \t]+$/, "", $2); 
+            gsub(/^[ \t]+|[ \t]+$/, "", $3); 
+            gsub(/^[ \t]+|[ \t]+$/, "", $4); 
+            if ($2 ~ /^[0-9-]+$/) { 
+                printf("• **%s**\n  - خوانده‌شده: %s\n  - پردازش‌شده: %s\n  - پردازش‌نشده: %s\n", $1, $2, $3, $4) 
+            } 
+        }
+        /Local API Decisions/ { found=0 }
+    ')
 
-    # ساخت گزارش با فرمت Markdown
+    # متریکس: دلایل مسدودسازی
+    local ban_reasons=$(sudo cscli metrics 2>/dev/null | awk '
+        BEGIN { FS="│"; found=0 }
+        /Reason.*Origin.*Action.*Count/ { found=1; getline; next }
+        found && /\|/ { 
+            gsub(/^[ \t]+|[ \t]+$/, "", $2); 
+            gsub(/^[ \t]+|[ \t]+$/, "", $3); 
+            gsub(/^[ \t]+|[ \t]+$/, "", $4); 
+            gsub(/^[ \t]+|[ \t]+$/, "", $5); 
+            if ($5 ~ /^[0-9]+$/) { 
+                printf("• **%s**\n  - منبع: %s\n  - اقدام: %s\n  - تعداد: %s\n", $2, $3, $4, $5) 
+            } 
+        }
+        /Local API Metrics/ { found=0 }
+    ')
+
+    # متریکس: درخواست‌های API
+    local api_metrics=$(sudo cscli metrics 2>/dev/null | awk '
+        BEGIN { FS="│"; found=0 }
+        /Route.*Method.*Hits/ { found=1; getline; next }
+        found && /\|/ { 
+            gsub(/^[ \t]+|[ \t]+$/, "", $2); 
+            gsub(/^[ \t]+|[ \t]+$/, "", $3); 
+            gsub(/^[ \t]+|[ \t]+$/, "", $4); 
+            if ($4 ~ /^[0-9]+$/) { 
+                printf("• **%s**\n  - روش: %s\n  - تعداد: %s\n", $2, $3, $4) 
+            } 
+        }
+        /Local API Machines Metrics/ { found=0 }
+    ')
+
+    # سناریوهای فعال
+    local scenarios=$(sudo cscli scenarios list 2>/dev/null | awk '
+        NR>2 { 
+            printf("• **%s**\n  - وضعیت: %s\n", $1, $2) 
+        }')
+
+    # ساخت گزارش
     local report=""
     report+="**🛡️ گزارش امنیتی CrowdSec**  \n"
     report+="**⏰ زمان**: $(date +"%Y-%m-%d %H:%M:%S")  \n"
@@ -96,8 +146,17 @@ generate_security_report() {
     report+="**🔵 IPهای مسدود‌شده**  \n"
     report+="${bans_report}\n"
     report+="────────────────────  \n"
-    report+="**📊 متریکس**  \n"
-    report+="\`\`\`  \n${metrics}\n\`\`\`  \n"
+    report+="**🚫 دلایل مسدودسازی**  \n"
+    report+="${ban_reasons:-• اطلاعاتی در دسترس نیست}\n"
+    report+="────────────────────  \n"
+    report+="**🌐 درخواست‌های API**  \n"
+    report+="${api_metrics:-• اطلاعاتی در دسترس نیست}\n"
+    report+="────────────────────  \n"
+    report+="**📈 وضعیت مانیتورینگ لاگ‌ها**  \n"
+    report+="${log_metrics:-• اطلاعاتی در دسترس نیست}\n"
+    report+="────────────────────  \n"
+    report+="**🔧 سناریوهای فعال**  \n"
+    report+="${scenarios:-• اطلاعاتی در دسترس نیست}\n"
     report+="────────────────────  \n"
 
     send_telegram "$report"
