@@ -15,6 +15,10 @@ NGINX_PROXY_MANAGER_PORT="81"
 CODE_SERVER_PASSWORD="114aa2650b0db5509f36f4fc"
 PUBLIC_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO8J++ag0NtV/AaQU9mF7X8qSKGrOy2Wu1eJISg72Zfs bigpython@TradePC"
 
+# کاربر مخصوص SFTP
+SFTP_USER="securftpuser"
+SFTP_PASSWORD="uCkdYMqd5F@GGHYSKy9b"
+
 # لیست پورت‌های باز
 PORTS_TO_OPEN=("80" "443" "$SSH_PORT" "$CODE_SERVER_PORT" "$NETDATA_PORT" "$WAZUH_DASHBOARD_PORT" "$PORTAINER_PORT" "$NGINX_PROXY_MANAGER_PORT")
 RESERVED_PORTS=("1020" "1030" "1040" "2060" "3050" "2020" "4040" "3060" "2080")
@@ -72,6 +76,88 @@ check_success() {
         return 1
     fi
 }
+
+
+
+# =============================================
+# ایجاد کاربر SFTP
+# =============================================
+echo "🔄 Creating SFTP user: $SFTP_USER..."
+if id "$SFTP_USER" &>/dev/null; then
+    echo "⚠️ User $SFTP_USER already exists. Skipping creation."
+    send_telegram "⚠️ کاربر $SFTP_USER از قبل وجود دارد. از کاربر موجود استفاده می‌شود."
+else
+    # ایجاد کاربر بدون دسترسی به shell
+    useradd -m -s /usr/sbin/nologin "$SFTP_USER" && \
+    echo "$SFTP_USER:$SFTP_PASSWORD" | chpasswd && \
+    mkdir -p "/home/$SFTP_USER/.ssh" && \
+    echo "$PUBLIC_KEY" > "/home/$SFTP_USER/.ssh/authorized_keys" && \
+    chown -R "$SFTP_USER:$SFTP_USER" "/home/$SFTP_USER/.ssh" && \
+    chmod 700 "/home/$SFTP_USER/.ssh" && \
+    chmod 600 "/home/$SFTP_USER/.ssh/authorized_keys"
+    
+    echo "✅ User $SFTP_USER created with restricted access."
+    send_telegram "✅ کاربر $SFTP_USER با دسترسی محدود ایجاد شد."
+fi
+
+# =============================================
+# تنظیمات SSH/SFTP امنیتی
+# =============================================
+echo "🔒 Configuring Secure SFTP..."
+
+# پشتیبان‌گیری از تنظیمات قبلی
+cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+
+# اضافه کردن تنظیمات SFTP به sshd_config
+cat <<EOL >> /etc/ssh/sshd_config
+
+# ======== SFTP Configuration ========
+Subsystem sftp internal-sftp
+Match User $SFTP_USER
+    ForceCommand internal-sftp -d /upload
+    PasswordAuthentication yes
+    PubkeyAuthentication yes
+    AuthenticationMethods publickey,password
+    ChrootDirectory %h
+    PermitTunnel no
+    AllowAgentForwarding no
+    AllowTcpForwarding no
+    X11Forwarding no
+EOL
+
+# تنظیم مجوزهای دایرکتوری کاربر
+chown root:root /home/$SFTP_USER
+chmod 755 /home/$SFTP_USER
+mkdir -p /home/$SFTP_USER/upload
+chown $SFTP_USER:$SFTP_USER /home/$SFTP_USER/upload
+
+# ریستارت سرویس SSH
+systemctl restart sshd
+
+# =============================================
+# گزارش به تلگرام
+# =============================================
+SERVER_IP=$(curl -s ifconfig.me)
+FINAL_REPORT="
+🚀 **SFTP Configuration Complete**  
+📌 Server IP: \`$SERVER_IP\`  
+🔑 SFTP User: \`$SFTP_USER\`  
+🔒 Authentication: **Public Key + Password**  
+📁 Chroot Directory: \`/home/$SFTP_USER/upload\`  
+🔌 Connect Command:  
+\`\`\`
+sftp -P $SSH_PORT $SFTP_USER@$SERVER_IP
+\`\`\`
+"
+send_telegram "$FINAL_REPORT"
+echo "✅ SFTP setup completed successfully!"
+
+
+
+
+
+
+
 
 # تابع نصب امن CrowdSec
 install_crowdsec() {
