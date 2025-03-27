@@ -55,10 +55,7 @@ send_telegram() {
     local retry_count=0
     local success=0
     local error_msg=""
-    
-    # اسکیپ کردن تمام کاراکترهای خاص برای MarkdownV2
-    message=$(echo "$message" | sed -e 's/[][_*()~`>#+=|{}.!]/\\&/g')
-    
+
     # تقسیم پیام به بخش‌های 4096 کاراکتری
     local parts=()
     while [ -n "$message" ]; do
@@ -77,7 +74,7 @@ send_telegram() {
             fi
         fi
     done
-    
+
     for part in "${parts[@]}"; do
         retry_count=0
         success=0
@@ -85,9 +82,9 @@ send_telegram() {
             response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
                 -d "chat_id=$TELEGRAM_CHAT_ID" \
                 -d "text=$part" \
-                -d "parse_mode=MarkdownV2" \
+                -d "parse_mode=HTML" \
                 -d "disable_web_page_preview=true" 2>&1)
-            
+
             if echo "$response" | grep -q '"ok":true'; then
                 success=1
                 break
@@ -98,13 +95,13 @@ send_telegram() {
                 sleep 2
             fi
         done
-        
+
         if [ $success -eq 0 ]; then
             echo "❌ خطا در ارسال بخش پیام پس از $max_retries تلاش: $error_msg"
             return 1
         fi
     done
-    
+
     echo "✅ تمام بخش‌های پیام با موفقیت ارسال شدند"
     return 0
 }
@@ -277,45 +274,45 @@ restart_services() {
 
 # تولید گزارش CrowdSec
 generate_crowdsec_report() {
-    local report="📊 *گزارش امنیتی CrowdSec*\n\n"
-    
+    local report="<b>📊 گزارش امنیتی CrowdSec</b>\n\n"
+
     # آمار تحلیل لاگ‌ها
-    report+="🔍 *آمار تحلیل لاگ‌ها:*\n"
+    report+="<b>🔍 آمار تحلیل لاگ‌ها:</b>\n"
     local log_stats=$(sudo cscli metrics --no-color | awk -F'│' '
         /file:\/var\/log/ {
             gsub(/^[ \t]+|[ \t]+$/, "", $1);
             gsub(/^[ \t]+|[ \t]+$/, "", $2);
             if ($2 ~ /^[0-9]+$/) {
-                printf("▪️ `%s`: %d خط\n", $1, $2);
+                printf("• <code>%s</code>: %d خط\n", $1, $2);
             }
-        }' | sed 's/_/\\_/g' | sed 's/\./\\./g')
-    
-    [ -n "$log_stats" ] && report+="$log_stats\n" || report+="▪️ اطلاعاتی یافت نشد\n"
-    
+        }')
+
+    [ -n "$log_stats" ] && report+="$log_stats\n" || report+="• اطلاعاتی یافت نشد\n"
+
     # تصمیمات امنیتی
-    report+="\n🛡️ *تصمیمات امنیتی اخیر:*\n"
+    report+="\n<b>🛡️ تصمیمات امنیتی اخیر:</b>\n"
     local decisions=$(sudo cscli decisions list --no-color -o json | jq -r '
         group_by(.reason) | map({
             reason: .[0].reason,
             count: length,
             ips: (map(.value) | unique | join(", "))
-        })[] | "▪️ \(.reason): \(.count) مورد (IPها: \(.ips))"' 2>/dev/null | sed 's/_/\\_/g' | sed 's/\./\\./g')
-    
+        })[] | "• " + .reason + ": " + (.count | tostring) + " مورد (IPها: " + .ips + ")"' 2>/dev/null)
+
     if [ -n "$decisions" ]; then
         report+="$decisions\n"
     else
-        report+="▪️ موردی یافت نشد\n"
+        report+="• موردی یافت نشد\n"
     fi
-    
+
     # وضعیت کلی
-    report+="\n📈 *وضعیت کلی:*\n"
+    report+="\n<b>📈 وضعیت کلی:</b>\n"
     local metrics=$(sudo cscli metrics --no-color | awk -F'│' '
-        /Parsers:/ { printf("▪️ پارسرها: %s\n", $2) }
-        /Scenarios:/ { printf("▪️ سناریوها: %s\n", $2) }
-        /Collections:/ { printf("▪️ مجموعه‌ها: %s\n", $2) }
-    ' | sed 's/_/\\_/g')
+        /Parsers:/ { printf("• پارسرها: %s\n", $2) }
+        /Scenarios:/ { printf("• سناریوها: %s\n", $2) }
+        /Collections:/ { printf("• مجموعه‌ها: %s\n", $2) }
+    ')
     report+="$metrics"
-    
+
     echo -e "$report"
 }
 
@@ -358,53 +355,50 @@ EOL
 # تولید گزارش نهایی
 generate_final_report() {
     echo "🔄 آماده‌سازی گزارش نهایی..."
-    
+
     local SERVER_IP=$(curl -4 -s ifconfig.me || echo "نامشخص")
     local LOCATION=$(curl -s "http://ip-api.com/line/$SERVER_IP?fields=country,city,isp" | paste -sd ' ' - || echo "نامشخص")
     local CROWD_SEC_REPORT=$(generate_crowdsec_report)
-    
-    # اسکیپ کردن IP برای MarkdownV2
-    local SERVER_IP_ESCAPED=$(echo "$SERVER_IP" | sed 's/\./\\./g')
-    
+
     local SERVICES_INFO=""
     if [ "${SERVICE_STATUS["portainer"]}" == "فعال" ]; then
-        SERVICES_INFO+="▪️ \[Portainer\]\(http://${SERVER_IP_ESCAPED}:${PORTAINER_PORT}\)\n"
+        SERVICES_INFO+="• <a href=\"http://${SERVER_IP}:${PORTAINER_PORT}\">Portainer</a>\n"
     fi
     if [ "${SERVICE_STATUS["nginx-proxy-manager"]}" == "فعال" ]; then
-        SERVICES_INFO+="▪️ \[Nginx Proxy Manager\]\(http://${SERVER_IP_ESCAPED}:${NGINX_PROXY_MANAGER_PORT}\)\n"
+        SERVICES_INFO+="• <a href=\"http://${SERVER_IP}:${NGINX_PROXY_MANAGER_PORT}\">Nginx Proxy Manager</a>\n"
     fi
     if [ "${SERVICE_STATUS["code-server"]}" == "فعال" ]; then
-        SERVICES_INFO+="▪️ \[Code-Server\]\(http://${SERVER_IP_ESCAPED}:${CODE_SERVER_PORT}\)\n"
+        SERVICES_INFO+="• <a href=\"http://${SERVER_IP}:${CODE_SERVER_PORT}\">Code-Server</a>\n"
     fi
     if [ "${SERVICE_STATUS["netdata"]}" == "فعال" ]; then
-        SERVICES_INFO+="▪️ \[Netdata\]\(http://${SERVER_IP_ESCAPED}:${NETDATA_PORT}\)\n"
+        SERVICES_INFO+="• <a href=\"http://${SERVER_IP}:${NETDATA_PORT}\">Netdata</a>\n"
     fi
 
-    local FINAL_REPORT="*🚀 گزارش نهایی پیکربندی سرور*\n\n"
-    FINAL_REPORT+="🕒 *زمان:* $(date +"%Y/%m/%d %H:%M:%S")\n"
-    FINAL_REPORT+="🌍 *IP:* \`${SERVER_IP_ESCAPED}\`\n"
-    FINAL_REPORT+="📍 *موقعیت:* ${LOCATION}\n"
-    FINAL_REPORT+="🖥️ *میزبان:* \`$(hostname)\`\n\n"
-    
-    FINAL_REPORT+="🔑 *دسترسی‌های اصلی:*\n"
-    FINAL_REPORT+="▪️ کاربر اصلی: \`${NEW_USER}\`\n"
-    FINAL_REPORT+="▪️ پورت SSH: \`${SSH_PORT}\`\n"
-    FINAL_REPORT+="▪️ کاربر SFTP: \`${SFTP_USER}\`\n\n"
-    
+    local FINAL_REPORT="<b>🚀 گزارش نهایی پیکربندی سرور</b>\n\n"
+    FINAL_REPORT+="<b>🕒 زمان:</b> $(date +"%Y/%m/%d %H:%M:%S")\n"
+    FINAL_REPORT+="<b>🌍 IP:</b> <code>${SERVER_IP}</code>\n"
+    FINAL_REPORT+="<b>📍 موقعیت:</b> ${LOCATION}\n"
+    FINAL_REPORT+="<b>🖥️ میزبان:</b> <code>$(hostname)</code>\n\n"
+
+    FINAL_REPORT+="<b>🔑 دسترسی‌های اصلی:</b>\n"
+    FINAL_REPORT+="• کاربر اصلی: <code>${NEW_USER}</code>\n"
+    FINAL_REPORT+="• پورت SSH: <code>${SSH_PORT}</code>\n"
+    FINAL_REPORT+="• کاربر SFTP: <code>${SFTP_USER}</code>\n\n"
+
     FINAL_REPORT+="${CROWD_SEC_REPORT}\n"
-    
-    FINAL_REPORT+="🛠️ *سرویس‌های نصب‌شده:*\n"
+
+    FINAL_REPORT+="<b>🛠️ سرویس‌های نصب‌شده:</b>\n"
     if [ -n "$SERVICES_INFO" ]; then
         FINAL_REPORT+="$SERVICES_INFO\n"
     else
-        FINAL_REPORT+="▪️ هیچ سرویس فعالی وجود ندارد\n"
+        FINAL_REPORT+="• هیچ سرویس فعالی وجود ندارد\n"
     fi
-    
-    FINAL_REPORT+="🔒 *وضعیت امنیتی:*\n"
-    FINAL_REPORT+="▪️ فایروال: فعال\n"
-    FINAL_REPORT+="▪️ آخرین بروزرسانی: $(date +"%Y/%m/%d %H:%M")\n"
-    FINAL_REPORT+="▪️ \[مشاهده آلرت‌ها در کنسول CrowdSec\]\(https://app\.crowdsec\.net/alerts\)\n"
-    
+
+    FINAL_REPORT+="<b>🔒 وضعیت امنیتی:</b>\n"
+    FINAL_REPORT+="• فایروال: فعال\n"
+    FINAL_REPORT+="• آخرین بروزرسانی: $(date +"%Y/%m/%d %H:%M")\n"
+    FINAL_REPORT+="• <a href=\"https://app.crowdsec.net/alerts\">مشاهده آلرت‌ها در کنسول CrowdSec</a>\n"
+
     send_telegram "$FINAL_REPORT"
     echo "✅ گزارش نهایی ارسال شد"
 }
