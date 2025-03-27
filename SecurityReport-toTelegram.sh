@@ -41,23 +41,28 @@ send_telegram() {
     # تبدیل \n به خط جدید واقعی
     message=$(echo -e "$message")
 
-    # اسکیپ کردن همه کاراکترهای خاص برای Markdown
-    message=$(echo "$message" | sed 's/\\/\\\\/g' | sed 's/\*/\\*/g' | sed 's/_/\\_/g' | sed 's/`/\\`/g' | sed 's/|/\\|/g' | sed 's/-/\\-/g' | sed 's/\[/\\[/g' | sed 's/\]/\\]/g' | sed 's/(/\\(/g' | sed 's/)/\\)/g' | sed 's/#/\\#/g' | sed 's/+/\\+/g' | sed 's/!/\\!/g')
+    # اسکیپ کردن کاراکترهای خاص برای Markdown
+    message=$(echo "$message" | sed 's/\*/\\*/g' | sed 's/_/\\_/g' | sed 's/`/\\`/g' | sed 's/|/\\|/g' | sed 's/-/\\-/g' | sed 's/\[/\\[/g' | sed 's/\]/\\]/g' | sed 's/(/\\(/g' | sed 's/)/\\)/g' | sed 's/#/\\#/g' | sed 's/+/\\+/g' | sed 's/!/\\!/g')
 
     # ذخیره پیام برای دیباگ
-    echo "[$timestamp] پیام قبل از ارسال:\n$message" >> "$LOG_FILE"
+    echo "[$timestamp] پیام قبل از تقسیم:\n$message" >> "$LOG_FILE"
+    echo "[$timestamp] طول پیام: ${#message}" >> "$LOG_FILE"
 
-    # تقسیم پیام به بخش‌های 4096 کاراکتری
+    # تقسیم پیام به بخش‌های 4000 کاراکتری (کمی کمتر از 4096 برای احتیاط)
     local parts=()
+    local max_length=4000
     while [ -n "$message" ]; do
-        if [ ${#message} -le 4096 ]; then
+        if [ ${#message} -le $max_length ]; then
             parts+=("$message")
             break
         else
-            local part="${message:0:4096}"
+            local part="${message:0:$max_length}"
             local last_newline=$(echo "$part" | grep -aob '\n' | tail -1 | cut -d: -f1)
-            if [ -n "$last_newline" ]; then
+            if [ -n "$last_newline" ] && [ "$last_newline" -gt 0 ]; then
                 part="${message:0:$((last_newline + 1))}"
+            else
+                # اگه خط جدید پیدا نشد، یه خط جدید اضافه می‌کنیم
+                part="${message:0:$max_length}\n"
             fi
             parts+=("$part")
             message="${message:${#part}}"
@@ -65,18 +70,21 @@ send_telegram() {
     done
 
     # ارسال هر بخش
+    local part_count=1
     for part in "${parts[@]}"; do
+        echo "[$timestamp] ارسال بخش $part_count - طول: ${#part}" >> "$LOG_FILE"
         local response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -d "chat_id=$TELEGRAM_CHAT_ID" \
             -d "text=$part" \
             -d "parse_mode=Markdown" 2>&1)
 
         if echo "$response" | grep -q '"ok":true'; then
-            echo "[$timestamp] ✅ ارسال موفق" | tee -a "$LOG_FILE"
+            echo "[$timestamp] ✅ بخش $part_count ارسال شد" | tee -a "$LOG_FILE"
         else
-            echo "[$timestamp] ❌ خطا: $response" | tee -a "$LOG_FILE"
+            echo "[$timestamp] ❌ خطا در ارسال بخش $part_count: $response" | tee -a "$LOG_FILE"
             return 1
         fi
+        part_count=$((part_count + 1))
     done
     return 0
 }
@@ -153,9 +161,9 @@ generate_security_report() {
         /Local API Machines Metrics/ { found=0 }
     ')
 
-    # سناریوهای فعال
+    # سناریوهای فعال (محدود به 10 مورد برای جلوگیری از طولانی شدن)
     local scenarios=$(sudo cscli scenarios list 2>/dev/null | awk '
-        NR>2 { 
+        NR>2 && NR<=12 { 
             printf("• **%s**\n  - وضعیت: %s\n", $1, $2) 
         }')
 
@@ -181,7 +189,7 @@ generate_security_report() {
     report+="**📈 وضعیت مانیتورینگ لاگ‌ها**  \n"
     report+="${log_metrics:-• اطلاعاتی در دسترس نیست}\n"
     report+="────────────────────  \n"
-    report+="**🔧 سناریوهای فعال**  \n"
+    report+="**🔧 سناریوهای فعال (10 مورد اول)**  \n"
     report+="${scenarios:-• اطلاعاتی در دسترس نیست}\n"
     report+="────────────────────  \n"
 
