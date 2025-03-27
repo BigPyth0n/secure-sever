@@ -12,7 +12,6 @@ LOG_FILE="/var/log/crowdsec_reports.log"
 # توابع
 # =============================================
 
-# تابع نصب پیش‌نیازها
 install_prerequisites() {
     local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
     local missing_tools=()
@@ -37,7 +36,6 @@ install_prerequisites() {
     return 0
 }
 
-# تابع ارسال به تلگرام
 send_telegram() {
     local message="$1"
     local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
@@ -56,7 +54,6 @@ send_telegram() {
     fi
 }
 
-# تابع تولید گزارش امنیتی
 generate_security_report() {
     install_prerequisites || return 1
 
@@ -97,29 +94,43 @@ generate_security_report() {
         sort_by(.ip)
     ' 2>/dev/null || echo "[]")
 
-    # متریکس ساده‌شده
-    local metrics_summary=""
-    # لاگ‌های خوانده‌شده
-    local log_lines=$(sudo cscli metrics 2>/dev/null | awk -F'│' '
+    # متریکس: لاگ‌ها
+    local log_metrics=$(sudo cscli metrics 2>/dev/null | awk -F'│' '
         /file:\/var\/log/ { 
             gsub(/^[ \t]+|[ \t]+$/, "", $1); 
             gsub(/^[ \t]+|[ \t]+$/, "", $2); 
-            if ($2 ~ /^[0-9]+$/) { 
-                printf("├─ <b>%s</b>: %s خط\n", $1, $2) 
+            gsub(/^[ \t]+|[ \t]+$/, "", $3); 
+            gsub(/^[ \t]+|[ \t]+$/, "", $4); 
+            if ($2 ~ /^[0-9-]+$/) { 
+                printf("├─ <b>%s</b>\n│  ├─ خوانده‌شده: %s\n│  ├─ پردازش‌شده: %s\n│  └─ پردازش‌نشده: %s\n", $1, $2, $3, $4) 
             } 
         }
     ' | sed '$s/├─/└─/')
-    # دلایل مسدودسازی
+
+    # متریکس: دلایل مسدودسازی
     local ban_reasons=$(sudo cscli metrics 2>/dev/null | awk -F'│' '
         /Reason/ { getline; while ($0 ~ /\|/) { 
             gsub(/^[ \t]+|[ \t]+$/, "", $2); 
+            gsub(/^[ \t]+|[ \t]+$/, "", $3); 
+            gsub(/^[ \t]+|[ \t]+$/, "", $4); 
             gsub(/^[ \t]+|[ \t]+$/, "", $5); 
             if ($5 ~ /^[0-9]+$/) { 
-                printf("├─ <b>%s</b>: %s مورد\n", $2, $5) 
+                printf("├─ <b>%s</b>\n│  ├─ منبع: %s\n│  ├─ اقدام: %s\n│  └─ تعداد: %s\n", $2, $3, $4, $5) 
             }; getline 
         }}
     ' | sed '$s/├─/└─/')
-    metrics_summary+="${log_lines}\n${ban_reasons}"
+
+    # متریکس: درخواست‌های API
+    local api_metrics=$(sudo cscli metrics 2>/dev/null | awk -F'│' '
+        /Route.*Method.*Hits/ { getline; while ($0 ~ /\|/) { 
+            gsub(/^[ \t]+|[ \t]+$/, "", $2); 
+            gsub(/^[ \t]+|[ \t]+$/, "", $3); 
+            gsub(/^[ \t]+|[ \t]+$/, "", $4); 
+            if ($4 ~ /^[0-9]+$/) { 
+                printf("├─ <b>%s</b>\n│  ├─ روش: %s\n│  └─ تعداد: %s\n", $2, $3, $4) 
+            }; getline 
+        }}
+    ' | sed '$s/├─/└─/')
 
     # ساخت گزارش
     local report=""
@@ -159,10 +170,28 @@ generate_security_report() {
     fi
     report+="────────────────────\n"
 
-    # متریکس
-    report+="<b>📊 آمار کلی</b>\n"
-    if [ -n "$metrics_summary" ]; then
-        report+="${metrics_summary}"
+    # متریکس: لاگ‌ها
+    report+="<b>📈 متریکس لاگ‌ها</b>\n"
+    if [ -n "$log_metrics" ]; then
+        report+="${log_metrics}"
+    else
+        report+="└─ اطلاعاتی در دسترس نیست\n"
+    fi
+    report+="────────────────────\n"
+
+    # متریکس: دلایل مسدودسازی
+    report+="<b>🚫 دلایل مسدودسازی</b>\n"
+    if [ -n "$ban_reasons" ]; then
+        report+="${ban_reasons}"
+    else
+        report+="└─ اطلاعاتی در دسترس نیست\n"
+    fi
+    report+="────────────────────\n"
+
+    # متریکس: درخواست‌های API
+    report+="<b>🌐 درخواست‌های API</b>\n"
+    if [ -n "$api_metrics" ]; then
+        report+="${api_metrics}"
     else
         report+="└─ اطلاعاتی در دسترس نیست\n"
     fi
