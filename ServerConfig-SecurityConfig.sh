@@ -274,19 +274,38 @@ $(cscli metrics | awk '/ban/ {print "   - " $1 ": " $4 " مورد"}')
 # =============================================
 # تابع گزارش نهایی
 # =============================================
-generate_final_report() {
-    SERVER_IP=$(curl -s ifconfig.me || echo "نامشخص")
-    LOCATION=$(curl -s http://ip-api.com/line/$SERVER_IP?fields=country,city,isp | tr '\n' ' ' || echo "نامشخص")
-    
-    # گزارش CrowdSec
-    CROWD_SEC_REPORT="
+# =============================================
+# تابع گزارش‌دهی CrowdSec بهینه‌شده
+# =============================================
+generate_crowdsec_report() {
+    local report="
 🛡️ **گزارش امنیتی CrowdSec:**  
 📊 **آمار تحلیل لاگ‌ها:**  
-$(cscli metrics | awk -F'|' '/file:\/var\/log\// {print "   - " $1 ": " $3 " خط"}' | tr -d '|')
+$(cscli metrics | awk -F'|' '/file:\/var\/log/ {
+    gsub(/^[ \t]+|[ \t]+$/, "", $1);
+    gsub(/^[ \t]+|[ \t]+$/, "", $3);
+    if ($3 != "") print "   - " $1 ": " $3 " خط"
+}')
     
 🔒 **تصمیمات امنیتی اخیر:**  
-$(cscli metrics | awk -F'|' '/ban/ {print "   - " $1 ": " $4 " مورد"}' | tr -d '|')
-"
+$(cscli metrics | awk -F'|' '/ban/ {
+    gsub(/^[ \t]+|[ \t]+$/, "", $1);
+    gsub(/^[ \t]+|[ \t]+$/, "", $4);
+    if ($4 != "") print "   - " $1 ": " $4 " مورد"
+}')"
+    
+    echo "$report"
+}
+
+# =============================================
+# تابع گزارش نهایی
+# =============================================
+generate_final_report() {
+    SERVER_IP=$(curl -s ifconfig.me || echo "نامشخص")
+    LOCATION=$(curl -s http://ip-api.com/line/$SERVER_IP?fields=country,city,isp | paste -sd ' ' - || echo "نامشخص")
+    
+    # گزارش CrowdSec
+    CROWD_SEC_REPORT=$(generate_crowdsec_report)
 
     # ایجاد لیست سرویس‌ها با لینک‌های صحیح
     SERVICES_INFO=""
@@ -302,7 +321,7 @@ $(cscli metrics | awk -F'|' '/ban/ {print "   - " $1 ": " $4 " مورد"}' | tr 
     if [ "${SERVICE_STATUS["netdata"]}" == "فعال" ]; then
         SERVICES_INFO+="   - [Netdata](http://${SERVER_IP}:${NETDATA_PORT})\n"
     fi
-    
+
     # گزارش نهایی
     FINAL_REPORT="
 🚀 **گزارش نهایی پیکربندی سرور**  
@@ -339,7 +358,6 @@ ${SERVICES_INFO:-"   - هیچ سرویس فعالی وجود ندارد"}
     send_telegram "$FINAL_REPORT"
     echo "✅ گزارش نهایی ارسال شد"
 }
-
 # =============================================
 # شروع فرآیند نصب
 # =============================================
