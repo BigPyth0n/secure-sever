@@ -161,9 +161,9 @@ generate_security_report() {
         /Local API Machines Metrics/ { found=0 }
     ')
 
-    # سناریوهای فعال (محدود به 10 مورد برای جلوگیری از طولانی شدن)
+    # سناریوهای فعال (محدود به 10 مورد و حذف خطوط جداکننده)
     local scenarios=$(sudo cscli scenarios list 2>/dev/null | awk '
-        NR>2 && NR<=12 { 
+        NR>2 && !/^-+$/ && !/^Name/ && NR<=12 { 
             printf("• **%s**\n  - وضعیت: %s\n", $1, $2) 
         }')
 
