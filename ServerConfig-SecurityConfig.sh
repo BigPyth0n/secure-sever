@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # =============================================
 # تنظیمات اصلی
@@ -254,6 +255,7 @@ generate_crowdsec_report() {
 
 configure_security() {
     echo "🔄 اعمال تنظیمات امنیتی..."
+    rm -f /etc/sysctl.d/99-server-security.conf
     cat <<EOL > /etc/sysctl.d/99-server-security.conf
 net.ipv4.tcp_syncookies=1
 net.ipv4.conf.all.rp_filter=1
