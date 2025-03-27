@@ -35,53 +35,56 @@ declare -A SERVICE_STATUS
 # توابع کمکی (Helper Functions)
 # =============================================
 
+# تابع اسکیپ کاراکترهای MarkdownV2
+escape_markdown() {
+    local text="$1"
+    # اسکیپ کاراکترهای خاص برای MarkdownV2
+    text=$(echo "$text" | sed 's/[][_*()~`>#+=|{}.!]/\\&/g')
+    echo "$text"
+}
 
-
-
-# ارسال پیام به تلگرام با تلاش مجدد
+# ارسال پیام به تلگرام با تلاش مجدد و مدیریت پیام‌های طولانی
 send_telegram() {
     local message="$1"
     local max_retries=3
     local retry_count=0
     local success=0
     local error_msg=""
+    local max_length=4096  # حداکثر طول پیام تلگرام
     
-    # اسکیپ کردن کاراکترهای خاص برای MarkdownV2
-    message=$(echo "$message" | sed -e 's/[][(){}#+.!-]/\\&/g' -e 's/_/\\_/g' -e 's/*/\\*/g' -e 's/`/\\`/g' -e 's/>/\\>/g')
-    
-    while [ $retry_count -lt $max_retries ]; do
-        response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
-            -d "chat_id=$TELEGRAM_CHAT_ID" \
-            -d "text=$message" \
-            -d "parse_mode=MarkdownV2" \
-            -d "disable_web_page_preview=true" 2>&1)
+    # تقسیم پیام به بخش‌های 4096 کاراکتری
+    while [ -n "$message" ]; do
+        local part="${message:0:$max_length}"
+        message="${message:$max_length}"
         
-        # بررسی پاسخ با روشی مطمئن‌تر
-        if echo "$response" | grep -q '"ok":true'; then
-            success=1
-            break
-        else
-            retry_count=$((retry_count + 1))
-            error_msg=$(echo "$response" | grep -o '"description":"[^"]*"' | cut -d'"' -f4 || echo "$response")
-            echo "⚠️ تلاش $retry_count برای ارسال به تلگرام ناموفق بود. خطا: $error_msg"
-            sleep 2
+        # اسکیپ کاراکترهای خاص
+        part=$(escape_markdown "$part")
+        
+        while [ $retry_count -lt $max_retries ]; do
+            response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+                -d "chat_id=$TELEGRAM_CHAT_ID" \
+                -d "text=$part" \
+                -d "parse_mode=MarkdownV2" 2>&1)
+            
+            if echo "$response" | grep -q '"ok":true'; then
+                success=1
+                break
+            else
+                retry_count=$((retry_count + 1))
+                error_msg=$(echo "$response" | grep -o '"description":"[^"]*"' | cut -d'"' -f4 || echo "$response")
+                echo "⚠️ تلاش $retry_count برای ارسال به تلگرام ناموفق بود. خطا: $error_msg"
+                sleep 2
+            fi
+        done
+        
+        if [ $success -eq 0 ]; then
+            echo "❌ خطا در ارسال پیام به تلگرام پس از $max_retries تلاش: $error_msg"
+            return 1
         fi
+        retry_count=0  # ریست کردن برای بخش بعدی
     done
-    
-    if [ $success -eq 0 ]; then
-        echo "❌ خطا در ارسال پیام به تلگرام پس از $max_retries تلاش: $error_msg"
-        return 1
-    else
-        echo "✅ پیام با موفقیت ارسال شد (Message ID: $(echo "$response" | grep -o '"message_id":[0-9]*' | cut -d':' -f2))"
-        return 0
-    fi
+    return 0
 }
-
-
-
-
-
-
 
 # بررسی موفقیت عملیات و گزارش‌دهی
 check_success() {
@@ -240,35 +243,32 @@ restart_services() {
     send_telegram "$RESTART_REPORT"
 }
 
-
-
-
 # تولید گزارش CrowdSec
-#-------------------------------------------------
 generate_crowdsec_report() {
-    local report="📊 *گزارش امنیتی CrowdSec*\n\n"
+    local report="🛡️ *گزارش امنیتی CrowdSec*\n\n"
     
     # آمار تحلیل لاگ‌ها
-    report+="🔍 *آمار تحلیل لاگ‌ها:*\n"
-    local log_stats=$(sudo cscli metrics --no-color | awk -F'│' '
+    report+="📊 *آمار تحلیل لاگ‌ها:*\n"
+    local log_stats=$(sudo cscli metrics | awk -F'│' '
         /file:\/var\/log/ {
             gsub(/^[ \t]+|[ \t]+$/, "", $1);
             gsub(/^[ \t]+|[ \t]+$/, "", $2);
             if ($2 ~ /^[0-9]+$/) {
-                printf("▪️ `%s`: %d خط\n", $1, $2);
+                gsub("_", "\\_", $1);
+                print "▪️ `" $1 "`: " $2 " خط"
             }
-        }' | sed 's/_/\\_/g')
+        }')
     
     [ -n "$log_stats" ] && report+="$log_stats\n" || report+="▪️ اطلاعاتی یافت نشد\n"
     
     # تصمیمات امنیتی
-    report+="\n🛡️ *تصمیمات امنیتی اخیر:*\n"
-    local decisions=$(sudo cscli decisions list --no-color -o json | jq -r '
+    report+="\n🔒 *تصمیمات امنیتی اخیر:*\n"
+    local decisions=$(sudo cscli decisions list -o json | jq -r '
         group_by(.reason) | map({
             reason: .[0].reason,
             count: length,
             ips: (map(.value) | unique | join(", "))
-        })[] | "▪️ \(.reason): \(.count) مورد (IPها: \(.ips))"' 2>/dev/null)
+        })[] | "▪️ " + (.reason | gsub("_"; "\\_")) + ": " + (.count | tostring) + " مورد (IPها: " + (.ips | gsub("_"; "\\_")) + ")"')
     
     if [ -n "$decisions" ]; then
         report+="$decisions\n"
@@ -276,29 +276,9 @@ generate_crowdsec_report() {
         report+="▪️ موردی یافت نشد\n"
     fi
     
-    # وضعیت کلی
-    report+="\n📈 *وضعیت کلی:*\n"
-    local metrics=$(sudo cscli metrics --no-color | awk -F'│' '
-        /Parsers:/ { printf("▪️ پارسرها: %s\n", $2) }
-        /Scenarios:/ { printf("▪️ سناریوها: %s\n", $2) }
-        /Collections:/ { printf("▪️ مجموعه‌ها: %s\n", $2) }
-    ')
-    report+="$metrics"
-    
-    echo -e "$report"
+    echo "$report"
 }
 
-
-
-
-
-
-
-
-
-
-
-#-------------------------------------------------
 # اعمال تنظیمات امنیتی سیستم
 configure_security() {
     echo "🔄 اعمال تنظیمات امنیتی..."
@@ -321,46 +301,32 @@ EOL
     check_success "اعمال تنظیمات امنیتی"
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # تولید گزارش نهایی
 generate_final_report() {
     echo "🔄 آماده‌سازی گزارش نهایی..."
     
     local SERVER_IP=$(curl -4 -s ifconfig.me || echo "نامشخص")
+    local SERVER_IP_ESCAPED=$(escape_markdown "$SERVER_IP")
     local LOCATION=$(curl -s "http://ip-api.com/line/$SERVER_IP?fields=country,city,isp" | paste -sd ' ' - || echo "نامشخص")
     local CROWD_SEC_REPORT=$(generate_crowdsec_report)
     
     local SERVICES_INFO=""
     if [ "${SERVICE_STATUS["portainer"]}" == "فعال" ]; then
-        SERVICES_INFO+="▪️ [Portainer](http://${SERVER_IP}:${PORTAINER_PORT})\n"
+        SERVICES_INFO+="▪️ [Portainer](http://${SERVER_IP_ESCAPED}:${PORTAINER_PORT})\n"
     fi
     if [ "${SERVICE_STATUS["nginx-proxy-manager"]}" == "فعال" ]; then
-        SERVICES_INFO+="▪️ [Nginx Proxy Manager](http://${SERVER_IP}:${NGINX_PROXY_MANAGER_PORT})\n"
+        SERVICES_INFO+="▪️ [Nginx Proxy Manager](http://${SERVER_IP_ESCAPED}:${NGINX_PROXY_MANAGER_PORT})\n"
     fi
     if [ "${SERVICE_STATUS["code-server"]}" == "فعال" ]; then
-        SERVICES_INFO+="▪️ [Code-Server](http://${SERVER_IP}:${CODE_SERVER_PORT})\n"
+        SERVICES_INFO+="▪️ [Code-Server](http://${SERVER_IP_ESCAPED}:${CODE_SERVER_PORT})\n"
     fi
     if [ "${SERVICE_STATUS["netdata"]}" == "فعال" ]; then
-        SERVICES_INFO+="▪️ [Netdata](http://${SERVER_IP}:${NETDATA_PORT})\n"
+        SERVICES_INFO+="▪️ [Netdata](http://${SERVER_IP_ESCAPED}:${NETDATA_PORT})\n"
     fi
 
     local FINAL_REPORT="*🚀 گزارش نهایی پیکربندی سرور*\n\n"
     FINAL_REPORT+="🕒 *زمان:* $(date +"%Y/%m/%d %H:%M:%S")\n"
-    FINAL_REPORT+="🌍 *IP:* \`${SERVER_IP}\`\n"
+    FINAL_REPORT+="🌍 *IP:* \`${SERVER_IP_ESCAPED}\`\n"
     FINAL_REPORT+="📍 *موقعیت:* ${LOCATION}\n"
     FINAL_REPORT+="🖥️ *میزبان:* \`$(hostname)\`\n\n"
     
@@ -381,26 +347,11 @@ generate_final_report() {
     FINAL_REPORT+="🔒 *وضعیت امنیتی:*\n"
     FINAL_REPORT+="▪️ فایروال: فعال\n"
     FINAL_REPORT+="▪️ آخرین بروزرسانی: $(date +"%Y/%m/%d %H:%M")\n"
-    FINAL_REPORT+="▪️ [مشاهده آلرت‌ها در کنسول CrowdSec](https://app.crowdsec.net/alerts)\n"
+    FINAL_REPORT+="▪️ [مشاهده آلرت‌ها در کنسول CrowdSec](https://app\.crowdsec\.net/alerts)\n"
     
-    # ارسال گزارش در دو قسمت اگر طولانی باشد
-    local msg_length=${#FINAL_REPORT}
-    if [ $msg_length -gt 3000 ]; then
-        local first_part=$(echo "$FINAL_REPORT" | head -n 20)
-        local second_part=$(echo "$FINAL_REPORT" | tail -n +21)
-        send_telegram "$first_part"
-        send_telegram "$second_part"
-    else
-        send_telegram "$FINAL_REPORT"
-    fi
-    
+    send_telegram "$FINAL_REPORT"
     echo "✅ گزارش نهایی ارسال شد"
 }
-
-
-
-
-
 
 # =============================================
 # نصب و بررسی jq (JQ Installer)
@@ -450,15 +401,6 @@ install_jq() {
     fi
 }
 
-
-
-
-
-
-
-# =============================================
-# تابع اصلی (Main Function)
-# =============================================
 # =============================================
 # تابع اصلی (Main Function)
 # =============================================
@@ -607,21 +549,6 @@ EOF
     send_telegram "*🎉 پیکربندی سرور با موفقیت تکمیل شد!* \n⏱️ زمان اجرا: ${MINUTES} دقیقه و ${SECONDS} ثانیه"
     echo "✅ پیکربندی سرور در ${MINUTES} دقیقه و ${SECONDS} ثانیه تکمیل شد"
 }
-
-# توابع جدید مورد نیاز
-configure_ssh() {
-    send_telegram "*🔐 در حال پیکربندی SSH...*"
-    # پیاده‌سازی مشابه قبل با گزارش‌دهی بهتر
-    # ...
-}
-
-install_docker() {
-    send_telegram "*🐳 در حال نصب Docker...*"
-    # پیاده‌سازی مشابه قبل با گزارش‌دهی بهتر
-    # ...
-}
-
-# سایر توابع به همین صورت...
 
 # اجرای تابع اصلی
 main "$@"
