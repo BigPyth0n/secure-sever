@@ -74,4 +74,8 @@ sudo chmod +x /usr/local/bin/SecurityReport-toTelegram.sh
 ```
 sudo crontab -l
 ```
+## اجرای سریع و دستی برای تست
+```
+sudo /usr/local/bin/SecurityReport-toTelegram.sh
+```
 
