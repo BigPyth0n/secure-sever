@@ -17,12 +17,10 @@ install_prerequisites() {
     local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
     local missing_tools=()
 
-    # چک کردن نصب بودن ابزارها
     command -v curl &>/dev/null || missing_tools+=("curl")
     command -v jq &>/dev/null || missing_tools+=("jq")
     command -v cscli &>/dev/null || missing_tools+=("crowdsec")
 
-    # اگه چیزی نصب نبود، نصب کن
     if [ ${#missing_tools[@]} -gt 0 ]; then
         echo "[$timestamp] ℹ️ نصب پیش‌نیازها: ${missing_tools[*]}" | tee -a "$LOG_FILE"
         apt update -y >> "$LOG_FILE" 2>&1
@@ -39,7 +37,7 @@ install_prerequisites() {
     return 0
 }
 
-# تابع ارسال به تلگرام با فرمت HTML
+# تابع ارسال به تلگرام
 send_telegram() {
     local message="$1"
     local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
@@ -60,10 +58,9 @@ send_telegram() {
 
 # تابع تولید گزارش امنیتی
 generate_security_report() {
-    # نصب پیش‌نیازها
     install_prerequisites || return 1
 
-    # دریافت اطلاعات حملات 24 ساعت اخیر
+    # حملات 24 ساعت اخیر
     local attacks_report=$(sudo cscli alerts list --since 24h -o json 2>/dev/null | jq -r '
         [.alerts[] | {
             type: .scenario,
@@ -82,7 +79,7 @@ generate_security_report() {
         sort_by(.count) | reverse
     ' 2>/dev/null || echo "[]")
 
-    # دریافت IPهای مسدود شده فعلی
+    # IPهای مسدود شده
     local banned_ips=$(sudo cscli decisions list -o json 2>/dev/null | jq -r '
         [.decisions[] | {
             ip: .value,
@@ -96,13 +93,30 @@ generate_security_report() {
             reason: .[0].reason,
             country: .[0].country,
             first_seen: (min_by(.duration) | .duration)
-        })
+        }) |
+        sort_by(.ip)
     ' 2>/dev/null || echo "[]")
 
-    # دریافت آمار کلی
-    local metrics=$(sudo cscli metrics 2>/dev/null | sed 's/│/|/g' | grep -v '+-' || echo "اطلاعات در دسترس نیست")
+    # متریکس ساده‌شده
+    local metrics_summary=""
+    metrics_summary+=$(sudo cscli metrics 2>/dev/null | awk -F'│' '
+        /file:\/var\/log/ { 
+            gsub(/^[ \t]+|[ \t]+$/, "", $1); 
+            gsub(/^[ \t]+|[ \t]+$/, "", $2); 
+            if ($2 ~ /^[0-9]+$/) { 
+                printf("├─ %s: %s خطوط خوانده‌شده\n", $1, $2) 
+            } 
+        }
+        /Reason/ { getline; while ($0 ~ /\|/) { 
+            gsub(/^[ \t]+|[ \t]+$/, "", $2); 
+            gsub(/^[ \t]+|[ \t]+$/, "", $5); 
+            if ($5 ~ /^[0-9]+$/) { 
+                printf("├─ %s: %s مورد\n", $2, $5) 
+            }; getline 
+        }}
+    ' | sed '$s/├─/└─/')
 
-    # ساخت گزارش با فرمت HTML
+    # ساخت گزارش
     local report=""
     report+="<b>🛡️ گزارش امنیتی CrowdSec</b>\n"
     report+="<pre>$(date +"%Y-%m-%d %H:%M:%S")</pre>\n"
@@ -110,6 +124,7 @@ generate_security_report() {
     report+="<b>⏳ دوره زمانی</b>: 24 ساعت اخیر\n"
     report+="<b>📧 ایمیل</b>: <code>${CONSOLE_EMAIL}</code>\n\n"
 
+    # حملات
     report+="<b>🔴 حملات شناسایی‌شده</b>\n"
     if [ "$attacks_report" != "[]" ]; then
         report+=$(echo "$attacks_report" | jq -r '.[] | 
@@ -124,21 +139,27 @@ generate_security_report() {
     fi
     report+="\n"
 
-    report+="<b>🔵 IPهای در حال مسدود</b>\n"
+    # IPهای مسدود
+    report+="<b>🔵 IPهای مسدود‌شده</b>\n"
     if [ "$banned_ips" != "[]" ]; then
         report+=$(echo "$banned_ips" | jq -r '.[] | 
             "├─ <b>\(.ip)</b>\n" +
             "│  ├─ علت: \(.reason)\n" +
             "│  ├─ کشور: \(.country)\n" +
-            "│  └─ مدت بلاک: \(.first_seen)\n"')
+            "│  └─ مدت: \(.first_seen)\n"')
         report="${report%├─*}└─${report##*├─}"
     else
         report+="└─ هیچ IP مسدودی یافت نشد\n"
     fi
     report+="\n"
 
+    # متریکس
     report+="<b>📊 آمار کلی</b>\n"
-    report+="<pre>${metrics}</pre>\n"
+    if [ -n "$metrics_summary" ]; then
+        report+="${metrics_summary}\n"
+    else
+        report+="└─ اطلاعات در دسترس نیست\n"
+    fi
 
     # ارسال گزارش
     send_telegram "$report"
