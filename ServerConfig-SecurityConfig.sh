@@ -49,81 +49,103 @@ escape_markdown() {
 
 
 # ارسال پیام به تلگرام با تلاش مجدد و مدیریت پیام‌های طولانی
-# Improved send_telegram() function
+#!/bin/bash
 
-# تابع ارسال پیام به تلگرام با تلاش مجدد، مدیریت پیام‌های طولانی و جلوگیری از ارسال پیام‌های خالی
+# تابع ارسال پیام به تلگرام با قابلیت دیباگ پیشرفته
 send_telegram() {
     local message="$1"
     local max_retries=3
     local retry_count=0
     local success=0
     local error_msg=""
-    local delay_between_parts=1  # تاخیر بین ارسال بخش‌های مختلف (ثانیه)
+    local delay_between_parts=1  # تاخیر بین ارسال بخش‌ها (ثانیه)
+    local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
 
-    # تابع برای فرمت‌بندی بهتر خطاها
+    # تابع فرمت‌بندی خطاها
     format_error() {
         local err="$1"
         echo "$err" | sed 's/\\n/\n/g' | sed 's/\\"/"/g' | head -n 1 | cut -c1-200
     }
 
-    # حذف کاراکترهای غیرقابل چاپ و بررسی خالی نبودن پیام
-    message=$(echo "$message" | tr -cd '\11\12\15\40-\176' | tr -s ' ')
-    if [[ -z "$message" ]]; then
-        echo "⚠️ پیام برای ارسال خالی است. عملیات ارسال لغو شد."
-        return 1
+    # بررسی پیش‌نیازها
+    if ! command -v curl &>/dev/null; then
+        echo "[$timestamp] ❌ خطا: curl نصب نیست. لطفاً curl را نصب کنید."
+        return 10  # کد بازگشت برای خطای پیش‌نیاز
     fi
 
-    # تقسیم پیام به بخش‌های 4096 کاراکتری با حفظ خطوط کامل
+    # لاگ پیام اولیه
+    echo "[$timestamp] ℹ️ پیام اولیه برای ارسال: '$message'"
+
+    # پاکسازی سبک‌تر: فقط حذف فضای اضافی و کاراکترهای کنترلی خطرناک
+    message=$(echo "$message" | tr -d '\000-\010\013\014\016-\037' | tr -s ' ')
+    echo "[$timestamp] ℹ️ پیام پس از پاکسازی: '$message'"
+
+    # بررسی خالی بودن پیام
+    if [[ -z "$message" ]]; then
+        echo "[$timestamp] ⚠️ پیام خالی است. عملیات ارسال لغو شد."
+        return 20  # کد بازگشت برای پیام خالی
+    fi
+
+    # تقسیم پیام به بخش‌های 4096 کاراکتری
     local parts=()
     while [ -n "$message" ]; do
         if [ ${#message} -le 4096 ]; then
             parts+=("$message")
             break
         else
-            # پیدا کردن آخرین خط کامل قبل از 4096 کاراکتر
             local part="${message:0:4096}"
-            local last_newline=$(echo "$part" | awk '{print substr($0,length-200)}' | grep -aobP '\n' | tail -1 | cut -d: -f1)
-
+            local last_newline=$(echo "$part" | awk '{print substr($0,length-200)}' | grep -aob '\n' | tail -1 | cut -d: -f1)
             if [ -n "$last_newline" ]; then
                 part="${message:0:$((4096 - (${#part} - $last_newline)))}"
             fi
-
             parts+=("$part")
             message="${message:${#part}}"
-            sleep "$delay_between_parts"  # تاخیر بین ارسال بخش‌ها
+            echo "[$timestamp] ℹ️ بخش‌بندی پیام: '$part'"
+            sleep "$delay_between_parts"
         fi
     done
 
+    # ارسال هر بخش با تلاش مجدد
+    local part_count=1
     for part in "${parts[@]}"; do
         retry_count=0
         success=0
+        echo "[$timestamp] 🚀 شروع ارسال بخش $part_count از ${#parts[@]}: '$part'"
 
         while [ $retry_count -lt $max_retries ]; do
+            local start_time=$(date +%s)
             response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
                 -d "chat_id=$TELEGRAM_CHAT_ID" \
                 -d "text=$part" \
                 -d "parse_mode=HTML" \
                 -d "disable_web_page_preview=true" 2>&1)
+            local end_time=$(date +%s)
+            local duration=$((end_time - start_time))
 
             if echo "$response" | grep -q '"ok":true'; then
                 success=1
+                echo "[$timestamp] ✅ بخش $part_count با موفقیت ارسال شد (زمان: ${duration} ثانیه)"
                 break
             else
                 retry_count=$((retry_count + 1))
                 error_msg=$(format_error "$response")
-                echo "⚠️ تلاش $retry_count/$max_retries برای ارسال بخش پیام ناموفق بود. خطا: $error_msg"
-                sleep 2
+                echo "[$timestamp] ⚠️ تلاش $retry_count/$max_retries ناموفق بود (زمان: ${duration} ثانیه). خطا: $error_msg"
+                if [ $retry_count -lt $max_retries ]; then
+                    echo "[$timestamp] ℹ️ انتظار 2 ثانیه قبل از تلاش مجدد..."
+                    sleep 2
+                fi
             fi
         done
 
         if [ $success -eq 0 ]; then
-            echo "❌ خطا در ارسال بخش پیام پس از $max_retries تلاش: $error_msg"
-            return 1
+            echo "[$timestamp] ❌ ارسال بخش $part_count پس از $max_retries تلاش شکست خورد: $error_msg"
+            return 30  # کد بازگشت برای خطای ارسال
         fi
+        part_count=$((part_count + 1))
     done
 
-    echo "✅ تمام بخش‌های پیام با موفقیت ارسال شدند"
-    return 0
+    echo "[$timestamp] ✅ تمام بخش‌های پیام با موفقیت ارسال شدند (${#parts[@]} بخش)"
+    return 0  # موفقیت کامل
 }
 
 
