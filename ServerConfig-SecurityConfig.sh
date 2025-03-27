@@ -235,44 +235,8 @@ restart_services() {
     send_telegram "$RESTART_REPORT"
 }
 
-generate_crowdsec_report() {
-    local report="🛡️ **گزارش امنیتی CrowdSec:**\n"
-    report+="📊 **آمار تحلیل لاگ‌ها:**\n"
-    report+=$(cscli metrics | awk -F'|' '/file:\/var\/log/ {
-        gsub(/^[ \t]+|[ \t]+$/, "", $1);
-        gsub(/^[ \t]+|[ \t]+$/, "", $3);
-        if ($3 != "") print "   - " $1 ": " $3 " خط"
-    }')
-    report+="\n🔒 **تصمیمات امنیتی اخیر:**\n"
-    report+=$(cscli metrics | awk -F'|' '/ban/ {
-        gsub(/^[ \t]+|[ \t]+$/, "", $1);
-        gsub(/^[ \t]+|[ \t]+$/, "", $4);
-        if ($4 != "") print "   - " $1 ": " $4 " مورد"
-    }')
-    
-    echo "$report"
-}
 
-configure_security() {
-    echo "🔄 اعمال تنظیمات امنیتی..."
-    rm -f /etc/sysctl.d/99-server-security.conf
-    cat <<EOL > /etc/sysctl.d/99-server-security.conf
-net.ipv4.tcp_syncookies=1
-net.ipv4.conf.all.rp_filter=1
-net.ipv4.conf.default.rp_filter=1
-net.ipv4.icmp_echo_ignore_broadcasts=1
-net.ipv4.conf.all.accept_redirects=0
-net.ipv4.conf.default.accept_redirects=0
-net.ipv4.conf.all.secure_redirects=0
-net.ipv4.conf.default.secure_redirects=0
-net.ipv4.conf.all.accept_source_route=0
-net.ipv4.conf.default.accept_source_route=0
-kernel.yama.ptrace_scope=1
-EOL
-    
-    sysctl -p /etc/sysctl.d/99-server-security.conf
-    check_success "تنظیمات امنیتی اعمال شد"
-}
+
 
 generate_final_report() {
     echo "🔄 آماده‌سازی گزارش نهایی..."
@@ -280,6 +244,7 @@ generate_final_report() {
     local SERVER_IP=$(curl -s ifconfig.me || echo "نامشخص")
     local LOCATION=$(curl -s http://ip-api.com/line/$SERVER_IP?fields=country,city,isp | paste -sd ' ' - || echo "نامشخص")
     
+   这里我们假设 SERVICE_STATUS, PORTAINER_PORT و غیره از قبل تعریف شدن
     local CROWD_SEC_REPORT=$(generate_crowdsec_report)
     
     local SERVICES_INFO=""
@@ -308,8 +273,12 @@ generate_final_report() {
     FINAL_REPORT+="   - *کاربر SFTP:* \`${SFTP_USER}\`\n\n"
     FINAL_REPORT+="${CROWD_SEC_REPORT}\n\n"
     FINAL_REPORT+="*🔹 سرویس‌های نصب شده:*\n"
-    FINAL_REPORT+="${SERVICES_INFO:-"   - هیچ سرویس فعالی وجود ندارد"}\n\n"
-    FINAL_REPORT+="*🔹 وضعیت CrowdSec:*\n"
+    if [ -n "$SERVICES_INFO" ]; then
+        FINAL_REPORT+="$SERVICES_INFO\n"
+    else
+        FINAL_REPORT+="   - هیچ سرویس فعالی وجود ندارد\n"
+    fi
+    FINAL_REPORT+="\n*🔹 وضعیت CrowdSec:*\n"
     FINAL_REPORT+="   - *سرویس:* ${SERVICE_STATUS["crowdsec"]}\n"
     FINAL_REPORT+="   - *کنسول:* ${SERVICE_STATUS["crowdsec_console"]}\n"
     FINAL_REPORT+="   - *ایمیل:* \`${CROWD_SEC_EMAIL}\`\n"
@@ -321,6 +290,10 @@ generate_final_report() {
     send_telegram "$FINAL_REPORT"
     echo "✅ گزارش نهایی ارسال شد"
 }
+
+
+
+
 
 # =============================================
 # تابع اصلی
