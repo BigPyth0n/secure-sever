@@ -78,8 +78,9 @@ generate_security_report() {
     fi
 
     # متریکس: لاگ‌ها
-    local log_metrics=$(sudo cscli metrics 2>/dev/null | awk -F'│' '
-        BEGIN { found=0 }
+    local log_metrics=""
+    log_metrics=$(sudo cscli metrics 2>/dev/null | awk '
+        BEGIN { FS="│"; found=0 }
         /Source.*Lines read.*Lines parsed.*Lines unparsed/ { found=1; next }
         found && /file:\/var\/log/ { 
             gsub(/^[ \t]+|[ \t]+$/, "", $1); 
@@ -92,10 +93,12 @@ generate_security_report() {
         }
         /Local API Decisions/ { found=0 }
     ')
+    echo "Log Metrics Raw: $log_metrics" >> "$LOG_FILE"
 
     # متریکس: دلایل مسدودسازی
-    local ban_reasons=$(sudo cscli metrics 2>/dev/null | awk -F'│' '
-        BEGIN { found=0 }
+    local ban_reasons=""
+    ban_reasons=$(sudo cscli metrics 2>/dev/null | awk '
+        BEGIN { FS="│"; found=0 }
         /Reason.*Origin.*Action.*Count/ { found=1; next }
         found && /\|/ { 
             gsub(/^[ \t]+|[ \t]+$/, "", $2); 
@@ -108,10 +111,12 @@ generate_security_report() {
         }
         /Local API Metrics/ { found=0 }
     ')
+    echo "Ban Reasons Raw: $ban_reasons" >> "$LOG_FILE"
 
     # متریکس: درخواست‌های API
-    local api_metrics=$(sudo cscli metrics 2>/dev/null | awk -F'│' '
-        BEGIN { found=0 }
+    local api_metrics=""
+    api_metrics=$(sudo cscli metrics 2>/dev/null | awk '
+        BEGIN { FS="│"; found=0 }
         /Route.*Method.*Hits/ { found=1; next }
         found && /\|/ { 
             gsub(/^[ \t]+|[ \t]+$/, "", $2); 
@@ -123,10 +128,12 @@ generate_security_report() {
         }
         /Local API Machines Metrics/ { found=0 }
     ')
+    echo "API Metrics Raw: $api_metrics" >> "$LOG_FILE"
 
     # متریکس: پارسرها
-    local parser_metrics=$(sudo cscli metrics 2>/dev/null | awk -F'│' '
-        BEGIN { found=0 }
+    local parser_metrics=""
+    parser_metrics=$(sudo cscli metrics 2>/dev/null | awk '
+        BEGIN { FS="│"; found=0 }
         /Parsers.*Hits.*Parsed.*Unparsed/ { found=1; next }
         found && /\|/ { 
             gsub(/^[ \t]+|[ \t]+$/, "", $2); 
@@ -138,6 +145,7 @@ generate_security_report() {
             } 
         }
     ')
+    echo "Parser Metrics Raw: $parser_metrics" >> "$LOG_FILE"
 
     # ساخت گزارش
     local report=""
