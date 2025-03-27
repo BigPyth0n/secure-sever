@@ -276,24 +276,31 @@ $(cscli metrics | awk '/ban/ {print "   - " $1 ": " $4 " مورد"}')
 # =============================================
 generate_final_report() {
     SERVER_IP=$(curl -s ifconfig.me || echo "نامشخص")
-    LOCATION=$(curl -s http://ip-api.com/line/$SERVER_IP?fields=country,city,isp || echo "نامشخص")
+    LOCATION=$(curl -s http://ip-api.com/line/$SERVER_IP?fields=country,city,isp | tr '\n' ' ' || echo "نامشخص")
     
     # گزارش CrowdSec
-    CROWD_SEC_REPORT=$(generate_crowdsec_report)
+    CROWD_SEC_REPORT="
+🛡️ **گزارش امنیتی CrowdSec:**  
+📊 **آمار تحلیل لاگ‌ها:**  
+$(cscli metrics | awk -F'|' '/file:\/var\/log\// {print "   - " $1 ": " $3 " خط"}' | tr -d '|')
     
+🔒 **تصمیمات امنیتی اخیر:**  
+$(cscli metrics | awk -F'|' '/ban/ {print "   - " $1 ": " $4 " مورد"}' | tr -d '|')
+"
+
     # ایجاد لیست سرویس‌ها با لینک‌های صحیح
     SERVICES_INFO=""
     if [ "${SERVICE_STATUS["portainer"]}" == "فعال" ]; then
-        SERVICES_INFO+="   - [Portainer](http://$SERVER_IP:$PORTAINER_PORT)\n"
+        SERVICES_INFO+="   - [Portainer](http://${SERVER_IP}:${PORTAINER_PORT})\n"
     fi
     if [ "${SERVICE_STATUS["nginx-proxy-manager"]}" == "فعال" ]; then
-        SERVICES_INFO+="   - [Nginx Proxy Manager](http://$SERVER_IP:$NGINX_PROXY_MANAGER_PORT)\n"
+        SERVICES_INFO+="   - [Nginx Proxy Manager](http://${SERVER_IP}:${NGINX_PROXY_MANAGER_PORT})\n"
     fi
     if [ "${SERVICE_STATUS["code-server"]}" == "فعال" ]; then
-        SERVICES_INFO+="   - [Code-Server](http://$SERVER_IP:$CODE_SERVER_PORT)\n"
+        SERVICES_INFO+="   - [Code-Server](http://${SERVER_IP}:${CODE_SERVER_PORT})\n"
     fi
     if [ "${SERVICE_STATUS["netdata"]}" == "فعال" ]; then
-        SERVICES_INFO+="   - [Netdata](http://$SERVER_IP:$NETDATA_PORT)\n"
+        SERVICES_INFO+="   - [Netdata](http://${SERVER_IP}:${NETDATA_PORT})\n"
     fi
     
     # گزارش نهایی
@@ -302,15 +309,15 @@ generate_final_report() {
 ⏳ زمان: $(date +"%Y-%m-%d %H:%M:%S")  
 
 🔹 **مشخصات سرور:**  
-   - IP: \`$SERVER_IP\`  
-   - موقعیت: $LOCATION  
+   - IP: \`${SERVER_IP}\`  
+   - موقعیت: ${LOCATION}  
    - میزبان: \`$(hostname)\`  
 
 🔹 **دسترسی‌های اصلی:**  
-   - کاربر اصلی: \`$NEW_USER\`  
-   - SSH Port: \`$SSH_PORT\` (فقط کلید عمومی)  
-   - کاربر SFTP: \`$SFTP_USER\`  
-   - رمز SFTP: \`$SFTP_PASSWORD\`  
+   - کاربر اصلی: \`${NEW_USER}\`  
+   - SSH Port: \`${SSH_PORT}\` (فقط کلید عمومی)  
+   - کاربر SFTP: \`${SFTP_USER}\`  
+   - رمز SFTP: \`${SFTP_PASSWORD}\`  
    - پورت‌های باز: \`${PORTS_TO_OPEN[*]}\`  
 
 ${CROWD_SEC_REPORT}
@@ -321,7 +328,7 @@ ${SERVICES_INFO:-"   - هیچ سرویس فعالی وجود ندارد"}
 🔹 **وضعیت CrowdSec:**  
    - سرویس: ${SERVICE_STATUS["crowdsec"]}  
    - کنسول: ${SERVICE_STATUS["crowdsec_console"]}  
-   - ایمیل: \`$CROWD_SEC_EMAIL\`  
+   - ایمیل: \`${CROWD_SEC_EMAIL}\`  
    - [مشاهده آلرت‌ها](https://app.crowdsec.net/alerts)  
 
 🔐 **وضعیت امنیتی:**  
