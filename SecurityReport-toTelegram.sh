@@ -38,10 +38,13 @@ send_telegram() {
     local message="$1"
     local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
 
+    # تبدیل \n به خط جدید واقعی
+    message=$(echo -e "$message")
+
     local response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
         -d "chat_id=$TELEGRAM_CHAT_ID" \
         -d "text=$message" \
-        -d "parse_mode=HTML" 2>&1)
+        -d "parse_mode=Markdown" 2>&1)
 
     if echo "$response" | grep -q '"ok":true'; then
         echo "[$timestamp] ✅ ارسال موفق" | tee -a "$LOG_FILE"
@@ -62,7 +65,7 @@ generate_security_report() {
     else
         local attacks_report=$(echo "$attacks" | awk '
             NR>2 { 
-                printf("• <b>سناریو: %s</b>\n  - IP: %s\n  - زمان: %s\n  - کشور: %s\n", $1, $2, $3, $4) 
+                printf("• **سناریو: %s**\n  - IP: %s\n  - زمان: %s\n  - کشور: %s\n", $1, $2, $3, $4) 
             }')
     fi
 
@@ -73,100 +76,29 @@ generate_security_report() {
     else
         local bans_report=$(echo "$bans" | awk '
             NR>2 { 
-                printf("• <b>IP: %s</b>\n  - علت: %s\n  - مدت: %s\n  - کشور: %s\n", $1, $2, $3, $4) 
+                printf("• **IP: %s**\n  - علت: %s\n  - مدت: %s\n  - کشور: %s\n", $1, $2, $3, $4) 
             }')
     fi
 
-    # متریکس: لاگ‌ها
-    local log_metrics=""
-    log_metrics=$(sudo cscli metrics 2>/dev/null | awk '
-        BEGIN { FS="│"; found=0 }
-        /Source.*Lines read.*Lines parsed.*Lines unparsed/ { found=1; getline; next }
-        found && /file:\/var\/log/ { 
-            gsub(/^[ \t]+|[ \t]+$/, "", $1); 
-            gsub(/^[ \t]+|[ \t]+$/, "", $2); 
-            gsub(/^[ \t]+|[ \t]+$/, "", $3); 
-            gsub(/^[ \t]+|[ \t]+$/, "", $4); 
-            if ($2 ~ /^[0-9-]+$/) { 
-                printf("• <b>%s</b>\n  - خوانده‌شده: %s\n  - پردازش‌شده: %s\n  - پردازش‌نشده: %s\n", $1, $2, $3, $4) 
-            } 
-        }
-        /Local API Decisions/ { found=0 }
-    ')
-    echo "Log Metrics Raw: $log_metrics" >> "$LOG_FILE"
+    # متریکس: خام
+    local metrics=$(sudo cscli metrics 2>/dev/null || echo "خطا در دریافت متریکس")
 
-    # متریکس: دلایل مسدودسازی
-    local ban_reasons=""
-    ban_reasons=$(sudo cscli metrics 2>/dev/null | awk '
-        BEGIN { FS="│"; found=0 }
-        /Reason.*Origin.*Action.*Count/ { found=1; getline; next }
-        found && /\|/ { 
-            gsub(/^[ \t]+|[ \t]+$/, "", $2); 
-            gsub(/^[ \t]+|[ \t]+$/, "", $3); 
-            gsub(/^[ \t]+|[ \t]+$/, "", $4); 
-            gsub(/^[ \t]+|[ \t]+$/, "", $5); 
-            if ($5 ~ /^[0-9]+$/) { 
-                printf("• <b>%s</b>\n  - منبع: %s\n  - اقدام: %s\n  - تعداد: %s\n", $2, $3, $4, $5) 
-            } 
-        }
-        /Local API Metrics/ { found=0 }
-    ')
-    echo "Ban Reasons Raw: $ban_reasons" >> "$LOG_FILE"
-
-    # متریکس: درخواست‌های API
-    local api_metrics=""
-    api_metrics=$(sudo cscli metrics 2>/dev/null | awk '
-        BEGIN { FS="│"; found=0 }
-        /Route.*Method.*Hits/ { found=1; getline; next }
-        found && /\|/ { 
-            gsub(/^[ \t]+|[ \t]+$/, "", $2); 
-            gsub(/^[ \t]+|[ \t]+$/, "", $3); 
-            gsub(/^[ \t]+|[ \t]+$/, "", $4); 
-            if ($4 ~ /^[0-9]+$/) { 
-                printf("• <b>%s</b>\n  - روش: %s\n  - تعداد: %s\n", $2, $3, $4) 
-            } 
-        }
-        /Local API Machines Metrics/ { found=0 }
-    ')
-    echo "API Metrics Raw: $api_metrics" >> "$LOG_FILE"
-
-    # متریکس: پارسرها
-    local parser_metrics=""
-    parser_metrics=$(sudo cscli metrics 2>/dev/null | awk '
-        BEGIN { FS="│"; found=0 }
-        /Parsers.*Hits.*Parsed.*Unparsed/ { found=1; getline; next }
-        found && /\|/ { 
-            gsub(/^[ \t]+|[ \t]+$/, "", $2); 
-            gsub(/^[ \t]+|[ \t]+$/, "", $3); 
-            gsub(/^[ \t]+|[ \t]+$/, "", $4); 
-            gsub(/^[ \t]+|[ \t]+$/, "", $5); 
-            if ($3 ~ /^[0-9-]+$/) { 
-                printf("• <b>%s</b>\n  - بازدید: %s\n  - پردازش‌شده: %s\n  - پردازش‌نشده: %s\n", $2, $3, $4, $5) 
-            } 
-        }
-    ')
-    echo "Parser Metrics Raw: $parser_metrics" >> "$LOG_FILE"
-
-    # ساخت گزارش
+    # ساخت گزارش با فرمت Markdown
     local report=""
-    report+="<b>🛡️ گزارش امنیتی CrowdSec</b>\n"
-    report+="<pre>$(date +"%Y-%m-%d %H:%M:%S")</pre>\n"
-    report+="────────────────────\n"
-    report+="<b>⏳ دوره</b>: 24 ساعت اخیر\n"
-    report+="<b>📧 ایمیل</b>: <code>${CONSOLE_EMAIL}</code>\n"
-    report+="────────────────────\n"
-    report+="<b>🔴 حملات شناسایی‌شده</b>\n${attacks_report}\n"
-    report+="────────────────────\n"
-    report+="<b>🔵 IPهای مسدود‌شده</b>\n${bans_report}\n"
-    report+="────────────────────\n"
-    report+="<b>📈 متریکس لاگ‌ها</b>\n${log_metrics:-• اطلاعاتی در دسترس نیست}\n"
-    report+="────────────────────\n"
-    report+="<b>🚫 دلایل مسدودسازی</b>\n${ban_reasons:-• اطلاعاتی در دسترس نیست}\n"
-    report+="────────────────────\n"
-    report+="<b>🌐 درخواست‌های API</b>\n${api_metrics:-• اطلاعاتی در دسترس نیست}\n"
-    report+="────────────────────\n"
-    report+="<b>🔍 متریکس پارسرها</b>\n${parser_metrics:-• اطلاعاتی در دسترس نیست}\n"
-    report+="────────────────────\n"
+    report+="**🛡️ گزارش امنیتی CrowdSec**  \n"
+    report+="**⏰ زمان**: $(date +"%Y-%m-%d %H:%M:%S")  \n"
+    report+="**⏳ دوره**: 24 ساعت اخیر  \n"
+    report+="**📧 ایمیل**: \`${CONSOLE_EMAIL}\`  \n"
+    report+="────────────────────  \n"
+    report+="**🔴 حملات شناسایی‌شده**  \n"
+    report+="${attacks_report}\n"
+    report+="────────────────────  \n"
+    report+="**🔵 IPهای مسدود‌شده**  \n"
+    report+="${bans_report}\n"
+    report+="────────────────────  \n"
+    report+="**📊 متریکس**  \n"
+    report+="\`\`\`  \n${metrics}\n\`\`\`  \n"
+    report+="────────────────────  \n"
 
     send_telegram "$report"
 }
