@@ -53,9 +53,9 @@
 ```
 sudo su - root -c "wget https://raw.githubusercontent.com/BigPyth0n/secure-sever/refs/heads/main/ServerConfig-SecurityConfig.sh -O /tmp/ServerConfig-SecurityConfig.sh && chmod +x /tmp/ServerConfig-SecurityConfig.sh && /tmp/ServerConfig-SecurityConfig.sh"
 ```
+|---------------------|----------------------------------|---------------|----------------------------------|
 
-
-# نحوه اجرا و فعال سازی اسکریپت اراسل گزارش به تلگرام
+# نحوه اجرا و فعال سازی اسکریپت ارسال گزارش به تلگرام
 ### ذخیره اسکریپت:
 
 ```
