@@ -330,48 +330,47 @@ generate_final_report() {
     
     local SERVICES_INFO=""
     if [ "${SERVICE_STATUS["portainer"]}" == "فعال" ]; then
-        SERVICES_INFO+="   - [Portainer](http://${SERVER_IP}:${PORTAINER_PORT})\n"
+        SERVICES_INFO+="  http://${SERVER_IP}:${PORTAINER_PORT} | Portainer\n"
     fi
     if [ "${SERVICE_STATUS["nginx-proxy-manager"]}" == "فعال" ]; then
-        SERVICES_INFO+="   - [Nginx Proxy Manager](http://${SERVER_IP}:${NGINX_PROXY_MANAGER_PORT})\n"
+        SERVICES_INFO+="  http://${SERVER_IP}:${NGINX_PROXY_MANAGER_PORT} | Nginx Proxy Manager\n"
     fi
     if [ "${SERVICE_STATUS["code-server"]}" == "فعال" ]; then
-        SERVICES_INFO+="   - [Code-Server](http://${SERVER_IP}:${CODE_SERVER_PORT})\n"
+        SERVICES_INFO+="  http://${SERVER_IP}:${CODE_SERVER_PORT} | Code-Server\n"
     fi
     if [ "${SERVICE_STATUS["netdata"]}" == "فعال" ]; then
-        SERVICES_INFO+="   - [Netdata](http://${SERVER_IP}:${NETDATA_PORT})\n"
+        SERVICES_INFO+="  http://${SERVER_IP}:${NETDATA_PORT} | Netdata\n"
     fi
 
-    local FINAL_REPORT="*🚀 گزارش نهایی پیکربندی سرور*\n\n"
-    FINAL_REPORT+="*⏳ زمان:* $(date +"%Y-%m-%d %H:%M:%S")\n\n"
-    FINAL_REPORT+="*🔹 مشخصات سرور:*\n"
-    FINAL_REPORT+="   - *IP:* ${SERVER_IP}\n"  # بدون اسکیپ چون MarkdownV2 خودش مدیریت می‌کنه
-    FINAL_REPORT+="   - *موقعیت:* ${LOCATION}\n"
-    FINAL_REPORT+="   - *میزبان:* $(hostname)\n\n"
-    FINAL_REPORT+="*🔹 دسترسی‌های اصلی:*\n"
-    FINAL_REPORT+="   - *کاربر اصلی:* ${NEW_USER}\n"
-    FINAL_REPORT+="   - *SSH Port:* ${SSH_PORT}\n"
-    FINAL_REPORT+="   - *کاربر SFTP:* ${SFTP_USER}\n\n"
+    local FINAL_REPORT="گزارش نهایی پیکربندی سرور\n\n"
+    FINAL_REPORT+="زمان: $(date +"%Y-%m-%d %H:%M:%S")\n\n"
+    FINAL_REPORT+="مشخصات سرور:\n"
+    FINAL_REPORT+="  IP: ${SERVER_IP}\n"
+    FINAL_REPORT+="  موقعیت: ${LOCATION}\n"
+    FINAL_REPORT+="  میزبان: $(hostname)\n\n"
+    FINAL_REPORT+="دسترسی‌های اصلی:\n"
+    FINAL_REPORT+="  کاربر اصلی: ${NEW_USER}\n"
+    FINAL_REPORT+="  SSH Port: ${SSH_PORT}\n"
+    FINAL_REPORT+="  کاربر SFTP: ${SFTP_USER}\n\n"
     FINAL_REPORT+="${CROWD_SEC_REPORT}\n\n"
-    FINAL_REPORT+="*🔹 سرویس‌های نصب‌شده:*\n"
+    FINAL_REPORT+="سرویس‌های نصب‌شده:\n"
     if [ -n "$SERVICES_INFO" ]; then
         FINAL_REPORT+="$SERVICES_INFO\n"
     else
-        FINAL_REPORT+="   - هیچ سرویس فعالی وجود ندارد\n"
+        FINAL_REPORT+="  هیچ سرویس فعالی وجود ندارد\n"
     fi
-    FINAL_REPORT+="\n*🔹 وضعیت CrowdSec:*\n"
-    FINAL_REPORT+="   - *سرویس:* ${SERVICE_STATUS["crowdsec"]:-نامشخص}\n"
-    FINAL_REPORT+="   - *کنسول:* ${SERVICE_STATUS["crowdsec_console"]:-نامشخص}\n"
-    FINAL_REPORT+="   - *ایمیل:* ${CROWD_SEC_EMAIL}\n"
-    FINAL_REPORT+="   - [مشاهده آلرت‌ها](https://app.crowdsec.net/alerts)\n\n"
-    FINAL_REPORT+="*🔐 وضعیت امنیتی:*\n"
-    FINAL_REPORT+="   - *فایروال:* فعال\n"
-    FINAL_REPORT+="   - *آخرین بروزرسانی:* $(date +"%Y-%m-%d %H:%M")"
+    FINAL_REPORT+="\nوضعیت CrowdSec:\n"
+    FINAL_REPORT+="  سرویس: ${SERVICE_STATUS["crowdsec"]:-نامشخص}\n"
+    FINAL_REPORT+="  کنسول: ${SERVICE_STATUS["crowdsec_console"]:-نامشخص}\n"
+    FINAL_REPORT+="  ایمیل: ${CROWD_SEC_EMAIL}\n"
+    FINAL_REPORT+="  مشاهده آلرت‌ها: https://app.crowdsec.net/alerts\n\n"
+    FINAL_REPORT+="وضعیت امنیتی:\n"
+    FINAL_REPORT+="  فایروال: فعال\n"
+    FINAL_REPORT+="  آخرین بروزرسانی: $(date +"%Y-%m-%d %H:%M")"
     
     send_telegram "$FINAL_REPORT"
     echo "✅ گزارش نهایی ارسال شد"
 }
-
 
 
 
