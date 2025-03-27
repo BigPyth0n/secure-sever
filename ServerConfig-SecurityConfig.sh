@@ -35,6 +35,9 @@ declare -A SERVICE_STATUS
 # توابع کمکی (Helper Functions)
 # =============================================
 
+
+
+
 # ارسال پیام به تلگرام با تلاش مجدد
 send_telegram() {
     local message="$1"
@@ -42,10 +45,14 @@ send_telegram() {
     local retry_count=0
     local success=0
     
+    # اسکیپ کردن کاراکترهای خاص برای MarkdownV2
+    message=$(echo "$message" | sed 's/[._*[\]()~`>#+-=|{}!]/\\&/g')
+    
     while [ $retry_count -lt $max_retries ]; do
         response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
             -d "chat_id=$TELEGRAM_CHAT_ID" \
-            -d "text=$message" 2>&1)  # حذف parse_mode=Markdown
+            -d "text=$message" \
+            -d "parse_mode=MarkdownV2" 2>&1)
         
         if [[ $response =~ \"ok\":true ]]; then
             success=1
@@ -63,6 +70,10 @@ send_telegram() {
     fi
     return 0
 }
+
+
+
+
 
 
 
@@ -229,33 +240,33 @@ restart_services() {
 # تولید گزارش CrowdSec
 #-------------------------------------------------
 generate_crowdsec_report() {
-    local report="گزارش امنیتی CrowdSec\n"
-    report+="آمار تحلیل لاگ‌ها:\n"
+    local report="*🛡️ گزارش امنیتی CrowdSec*\n"
+    report+="*📊 آمار تحلیل لاگ‌ها:*\n"
     
     local log_stats=$(sudo cscli metrics | awk -F'|' '
         /file:\/var\/log/ {
-            gsub(/^[ \t]+|[ \t]+$/, "", $1);  # ستون Source
-            gsub(/^[ \t]+|[ \t]+$/, "", $2);  # ستون Lines read
+            gsub(/^[ \t]+|[ \t]+$/, "", $1);
+            gsub(/^[ \t]+|[ \t]+$/, "", $2);
             if ($2 ~ /^[0-9]+$/) {
-                print "  " $1 ": " $2 " خط"
+                print "   - " $1 ": " $2 " خط"
             }
         }
     ')
     
-    [ -n "$log_stats" ] && report+="$log_stats\n" || report+="  اطلاعاتی یافت نشد\n"
+    [ -n "$log_stats" ] && report+="$log_stats\n" || report+="   - اطلاعاتی یافت نشد\n"
     
-    report+="\nتصمیمات امنیتی اخیر:\n"
+    report+="\n*🔒 تصمیمات امنیتی اخیر:*\n"
     local decision_stats=$(sudo cscli metrics | awk -F'|' '
         /ban/ && $1 !~ /Reason/ && $1 !~ /^[-─]*$/ {
-            gsub(/^[ \t]+|[ \t]+$/, "", $1);  # ستون Reason
-            gsub(/^[ \t]+|[ \t]+$/, "", $4);  # ستون Count
+            gsub(/^[ \t]+|[ \t]+$/, "", $1);
+            gsub(/^[ \t]+|[ \t]+$/, "", $4);
             if ($4 ~ /^[0-9]+$/) {
-                print "  " $1 ": " $4 " مورد"
+                print "   - " $1 ": " $4 " مورد"
             }
         }
     ')
     
-    [ -n "$decision_stats" ] && report+="$decision_stats\n" || report+="  اطلاعاتی یافت نشد\n"
+    [ -n "$decision_stats" ] && report+="$decision_stats\n" || report+="   - اطلاعاتی یافت نشد\n"
     
     echo "$report"
 }
@@ -319,43 +330,43 @@ generate_final_report() {
     
     local SERVICES_INFO=""
     if [ "${SERVICE_STATUS["portainer"]}" == "فعال" ]; then
-        SERVICES_INFO+="  http://${SERVER_IP}:${PORTAINER_PORT} - Portainer\n"
+        SERVICES_INFO+="   - [Portainer](http://${SERVER_IP}:${PORTAINER_PORT})\n"
     fi
     if [ "${SERVICE_STATUS["nginx-proxy-manager"]}" == "فعال" ]; then
-        SERVICES_INFO+="  http://${SERVER_IP}:${NGINX_PROXY_MANAGER_PORT} - Nginx Proxy Manager\n"
+        SERVICES_INFO+="   - [Nginx Proxy Manager](http://${SERVER_IP}:${NGINX_PROXY_MANAGER_PORT})\n"
     fi
     if [ "${SERVICE_STATUS["code-server"]}" == "فعال" ]; then
-        SERVICES_INFO+="  http://${SERVER_IP}:${CODE_SERVER_PORT} - Code-Server\n"
+        SERVICES_INFO+="   - [Code-Server](http://${SERVER_IP}:${CODE_SERVER_PORT})\n"
     fi
     if [ "${SERVICE_STATUS["netdata"]}" == "فعال" ]; then
-        SERVICES_INFO+="  http://${SERVER_IP}:${NETDATA_PORT} - Netdata\n"
+        SERVICES_INFO+="   - [Netdata](http://${SERVER_IP}:${NETDATA_PORT})\n"
     fi
 
-    local FINAL_REPORT="گزارش نهایی پیکربندی سرور\n\n"
-    FINAL_REPORT+="زمان: $(date +"%Y-%m-%d %H:%M:%S")\n\n"
-    FINAL_REPORT+="مشخصات سرور:\n"
-    FINAL_REPORT+="  IP: ${SERVER_IP}\n"
-    FINAL_REPORT+="  موقعیت: ${LOCATION}\n"
-    FINAL_REPORT+="  میزبان: $(hostname)\n\n"
-    FINAL_REPORT+="دسترسی‌های اصلی:\n"
-    FINAL_REPORT+="  کاربر اصلی: ${NEW_USER}\n"
-    FINAL_REPORT+="  SSH Port: ${SSH_PORT}\n"
-    FINAL_REPORT+="  کاربر SFTP: ${SFTP_USER}\n\n"
+    local FINAL_REPORT="*🚀 گزارش نهایی پیکربندی سرور*\n\n"
+    FINAL_REPORT+="*⏳ زمان:* $(date +"%Y-%m-%d %H:%M:%S")\n\n"
+    FINAL_REPORT+="*🔹 مشخصات سرور:*\n"
+    FINAL_REPORT+="   - *IP:* ${SERVER_IP}\n"  # بدون اسکیپ چون MarkdownV2 خودش مدیریت می‌کنه
+    FINAL_REPORT+="   - *موقعیت:* ${LOCATION}\n"
+    FINAL_REPORT+="   - *میزبان:* $(hostname)\n\n"
+    FINAL_REPORT+="*🔹 دسترسی‌های اصلی:*\n"
+    FINAL_REPORT+="   - *کاربر اصلی:* ${NEW_USER}\n"
+    FINAL_REPORT+="   - *SSH Port:* ${SSH_PORT}\n"
+    FINAL_REPORT+="   - *کاربر SFTP:* ${SFTP_USER}\n\n"
     FINAL_REPORT+="${CROWD_SEC_REPORT}\n\n"
-    FINAL_REPORT+="سرویس‌های نصب‌شده:\n"
+    FINAL_REPORT+="*🔹 سرویس‌های نصب‌شده:*\n"
     if [ -n "$SERVICES_INFO" ]; then
         FINAL_REPORT+="$SERVICES_INFO\n"
     else
-        FINAL_REPORT+="  هیچ سرویس فعالی وجود ندارد\n"
+        FINAL_REPORT+="   - هیچ سرویس فعالی وجود ندارد\n"
     fi
-    FINAL_REPORT+="\nوضعیت CrowdSec:\n"
-    FINAL_REPORT+="  سرویس: ${SERVICE_STATUS["crowdsec"]:-نامشخص}\n"
-    FINAL_REPORT+="  کنسول: ${SERVICE_STATUS["crowdsec_console"]:-نامشخص}\n"
-    FINAL_REPORT+="  ایمیل: ${CROWD_SEC_EMAIL}\n"
-    FINAL_REPORT+="  مشاهده آلرت‌ها: https://app.crowdsec.net/alerts\n\n"
-    FINAL_REPORT+="وضعیت امنیتی:\n"
-    FINAL_REPORT+="  فایروال: فعال\n"
-    FINAL_REPORT+="  آخرین بروزرسانی: $(date +"%Y-%m-%d %H:%M")"
+    FINAL_REPORT+="\n*🔹 وضعیت CrowdSec:*\n"
+    FINAL_REPORT+="   - *سرویس:* ${SERVICE_STATUS["crowdsec"]:-نامشخص}\n"
+    FINAL_REPORT+="   - *کنسول:* ${SERVICE_STATUS["crowdsec_console"]:-نامشخص}\n"
+    FINAL_REPORT+="   - *ایمیل:* ${CROWD_SEC_EMAIL}\n"
+    FINAL_REPORT+="   - [مشاهده آلرت‌ها](https://app.crowdsec.net/alerts)\n\n"
+    FINAL_REPORT+="*🔐 وضعیت امنیتی:*\n"
+    FINAL_REPORT+="   - *فایروال:* فعال\n"
+    FINAL_REPORT+="   - *آخرین بروزرسانی:* $(date +"%Y-%m-%d %H:%M")"
     
     send_telegram "$FINAL_REPORT"
     echo "✅ گزارش نهایی ارسال شد"
