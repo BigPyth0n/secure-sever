@@ -49,6 +49,9 @@ escape_markdown() {
 
 
 # ارسال پیام به تلگرام با تلاش مجدد و مدیریت پیام‌های طولانی
+# Improved send_telegram() function
+
+# تابع ارسال پیام به تلگرام با تلاش مجدد، مدیریت پیام‌های طولانی و جلوگیری از ارسال پیام‌های خالی
 send_telegram() {
     local message="$1"
     local max_retries=3
@@ -63,6 +66,13 @@ send_telegram() {
         echo "$err" | sed 's/\\n/\n/g' | sed 's/\\"/"/g' | head -n 1 | cut -c1-200
     }
 
+    # حذف کاراکترهای غیرقابل چاپ و بررسی خالی نبودن پیام
+    message=$(echo "$message" | tr -cd '\11\12\15\40-\176' | tr -s ' ')
+    if [[ -z "$message" ]]; then
+        echo "⚠️ پیام برای ارسال خالی است. عملیات ارسال لغو شد."
+        return 1
+    fi
+
     # تقسیم پیام به بخش‌های 4096 کاراکتری با حفظ خطوط کامل
     local parts=()
     while [ -n "$message" ]; do
@@ -73,11 +83,11 @@ send_telegram() {
             # پیدا کردن آخرین خط کامل قبل از 4096 کاراکتر
             local part="${message:0:4096}"
             local last_newline=$(echo "$part" | awk '{print substr($0,length-200)}' | grep -aobP '\n' | tail -1 | cut -d: -f1)
-            
+
             if [ -n "$last_newline" ]; then
                 part="${message:0:$((4096 - (${#part} - $last_newline)))}"
             fi
-            
+
             parts+=("$part")
             message="${message:${#part}}"
             sleep "$delay_between_parts"  # تاخیر بین ارسال بخش‌ها
@@ -87,10 +97,7 @@ send_telegram() {
     for part in "${parts[@]}"; do
         retry_count=0
         success=0
-        
-        # حذف کاراکترهای غیرقابل چاپ
-        part=$(echo "$part" | tr -cd '\11\12\15\40-\176')
-        
+
         while [ $retry_count -lt $max_retries ]; do
             response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
                 -d "chat_id=$TELEGRAM_CHAT_ID" \
@@ -295,6 +302,9 @@ restart_services() {
 
 
 # تولید گزارش CrowdSec
+# Improved generate_crowdsec_report() function
+
+# تولید گزارش CrowdSec
 generate_crowdsec_report() {
     local report="<b>🛡️ گزارش امنیتی CrowdSec</b>\n"
     report+="<i>$(date +"%Y/%m/%d %H:%M:%S")</i>\n"
@@ -397,6 +407,9 @@ EOL
 
 
 # تولید گزارش نهایی
+# Improved generate_final_report() function
+
+# تولید گزارش نهایی
 generate_final_report() {
     echo "🔄 در حال آماده‌سازی گزارش نهایی..."
 
@@ -404,10 +417,10 @@ generate_final_report() {
     local SERVER_IP=$(curl -4 -s ifconfig.me || echo "نامشخص")
     local LOCATION=$(curl -s "http://ip-api.com/json/$SERVER_IP?fields=country,countryCode,city,isp,org,as" 2>/dev/null | \
                     jq -r '[.country, .city, .isp, .org] | map(select(.)) | join(" | ")' 2>/dev/null || echo "نامشخص")
-    
+
     # گزارش امنیتی
     local SECURITY_REPORT=$(generate_crowdsec_report)
-    
+
     # اطلاعات سیستم
     local UPTIME=$(uptime -p | sed 's/up //')
     local LOAD_AVG=$(uptime | awk -F'load average: ' '{print $2}')
@@ -419,14 +432,19 @@ generate_final_report() {
     declare -A SERVICE_PORTS=(
         ["portainer"]="9000"
         ["nginx-proxy-manager"]="81"
-        ["code-server"]="8080"
-        ["netdata"]="19999"
+        ["code-server"]="1010"  # Corrected port
+        ["netdata"]="9001"      # Corrected port
     )
 
     for service in "${!SERVICE_STATUS[@]}"; do
         if [ "${SERVICE_STATUS[$service]}" == "فعال" ]; then
             local port=${SERVICE_PORTS[$service]}
-            SERVICES_INFO+="• <b>${service^}</b>\n   └ <a href=\"http://${SERVER_IP}:${port}\">http://${SERVER_IP}:${port}</a>\n"
+            # Check if the port is empty before constructing the link
+            if [ -n "$port" ]; then
+                SERVICES_INFO+="• <b>${service^}</b>\n   └ <a href=\"http://${SERVER_IP}:${port}\">http://${SERVER_IP}:${port}</a>\n"
+            else
+                SERVICES_INFO+="• <b>${service^}</b>\n   └ پورت نامشخص است\n"
+            fi
         fi
     done
 
@@ -465,13 +483,14 @@ generate_final_report() {
     # بخش پایانی
     FINAL_REPORT+="\n<b>📌 نکات امنیتی:</b>\n"
     FINAL_REPORT+="• فایروال فعال و پیکربندی شده\n"
-    FINAL_REPORT+="• آخرین بروزرسانی امنیتی: $(date -d "@$(stat -c %Y /var/lib/apt/periodic/update-success-stamp)" +"%Y/%m/%d %H:%M" 2>/dev/null || echo "نامشخص")\n"
+    FINAL_REPORT+="• آخرین بروزرسانی امنیتی: $(date -d \"@$(stat -c %Y /var/lib/apt/periodic/update-success-stamp)\" +\"%Y/%m/%d %H:%M\" 2>/dev/null || echo \"نامشخص\")\n"
     FINAL_REPORT+="• <a href=\"https://app.crowdsec.net/\">مشاهده وضعیت در کنسول CrowdSec</a>\n"
 
     # ارسال گزارش
     send_telegram "$FINAL_REPORT"
     echo "✅ گزارش نهایی با موفقیت ارسال شد"
 }
+
 
 
 
