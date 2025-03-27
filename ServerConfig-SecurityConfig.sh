@@ -44,8 +44,9 @@ send_telegram() {
     local max_retries=3
     local retry_count=0
     local success=0
+    local error_msg=""
     
-    # اسکیپ کردن کاراکترهای خاص برای MarkdownV2 به صورت کامل
+    # اسکیپ کردن کاراکترهای خاص برای MarkdownV2
     message=$(echo "$message" | sed -e 's/[][(){}#+.!-]/\\&/g' -e 's/_/\\_/g' -e 's/*/\\*/g' -e 's/`/\\`/g' -e 's/>/\\>/g')
     
     while [ $retry_count -lt $max_retries ]; do
@@ -55,22 +56,25 @@ send_telegram() {
             -d "parse_mode=MarkdownV2" \
             -d "disable_web_page_preview=true" 2>&1)
         
-        if echo "$response" | jq -e '.ok == true' >/dev/null 2>&1; then
+        # بررسی پاسخ با روشی مطمئن‌تر
+        if echo "$response" | grep -q '"ok":true'; then
             success=1
             break
         else
             retry_count=$((retry_count + 1))
-            error_msg=$(echo "$response" | jq -r '.description // "Unknown error"' 2>/dev/null || echo "$response")
+            error_msg=$(echo "$response" | grep -o '"description":"[^"]*"' | cut -d'"' -f4 || echo "$response")
             echo "⚠️ تلاش $retry_count برای ارسال به تلگرام ناموفق بود. خطا: $error_msg"
             sleep 2
         fi
     done
     
     if [ $success -eq 0 ]; then
-        echo "❌ خطا در ارسال پیام به تلگرام پس از $max_retries تلاش: $response"
+        echo "❌ خطا در ارسال پیام به تلگرام پس از $max_retries تلاش: $error_msg"
         return 1
+    else
+        echo "✅ پیام با موفقیت ارسال شد (Message ID: $(echo "$response" | grep -o '"message_id":[0-9]*' | cut -d':' -f2))"
+        return 0
     fi
-    return 0
 }
 
 
