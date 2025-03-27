@@ -41,8 +41,8 @@ send_telegram() {
     # تبدیل \n به خط جدید واقعی
     message=$(echo -e "$message")
 
-    # اسکیپ کردن کاراکترهای خاص برای Markdown
-    message=$(echo "$message" | sed 's/\*/\\*/g' | sed 's/_/\\_/g' | sed 's/`/\\`/g')
+    # اسکیپ کردن همه کاراکترهای خاص برای Markdown
+    message=$(echo "$message" | sed 's/\\/\\\\/g' | sed 's/\*/\\*/g' | sed 's/_/\\_/g' | sed 's/`/\\`/g' | sed 's/|/\\|/g' | sed 's/-/\\-/g' | sed 's/\[/\\[/g' | sed 's/\]/\\]/g' | sed 's/(/\\(/g' | sed 's/)/\\)/g' | sed 's/#/\\#/g' | sed 's/+/\\+/g' | sed 's/!/\\!/g')
 
     # ذخیره پیام برای دیباگ
     echo "[$timestamp] پیام قبل از ارسال:\n$message" >> "$LOG_FILE"
