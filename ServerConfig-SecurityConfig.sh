@@ -31,12 +31,9 @@ RESERVED_PORTS=("1020" "1030" "1040" "2060" "3050" "2020" "4040" "3060" "2080")
 declare -A SERVICE_STATUS
 
 # =============================================
-# توابع کمکی بهبود یافته
+# توابع کمکی
 # =============================================
 
-# =============================================
-# تابع ارسال گزارش به تلگرام با کنترل خطا
-# =============================================
 send_telegram() {
     local message="$1"
     local max_retries=3
@@ -61,20 +58,11 @@ send_telegram() {
     if [ $success -eq 0 ]; then
         echo "⚠️ خطا در ارسال پیام به تلگرام پس از $max_retries تلاش"
         echo "پیام خطا: $response"
+        return 1
     fi
+    return 0
 }
 
-
-
-
-
-
-
-
-
-# =============================================
-# تابع بررسی موفقیت عملیات با لاگ‌گیری پیشرفته
-# =============================================
 check_success() {
     local action="$1"
     local service="$2"
@@ -94,16 +82,15 @@ check_success() {
 }
 
 # =============================================
-# تابع نصب امن CrowdSec
+# توابع اصلی
 # =============================================
+
 install_crowdsec() {
     echo "🔄 نصب CrowdSec با محافظت کامل..."
     
-    # نصب از منابع رسمی
     curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | sudo bash
     apt install -y crowdsec || return 1
     
-    # نصب تمام مجموعه‌های محافظتی
     local collections=(
         "crowdsecurity/sshd"
         "crowdsecurity/apache2"
@@ -120,15 +107,12 @@ install_crowdsec() {
         cscli collections install "$collection" || echo "   ⚠️ خطا در نصب $collection"
     done
     
-    # تنظیمات سفارشی
     cscli parsers install crowdsecurity/whitelists
     cscli scenarios install crowdsecurity/http-probing
     
-    # راه‌اندازی سرویس
     systemctl enable --now crowdsec
     sleep 5
     
-    # بررسی نهایی
     if systemctl is-active --quiet crowdsec && cscli metrics >/dev/null 2>&1; then
         echo "✅ CrowdSec با موفقیت نصب و پیکربندی شد"
         SERVICE_STATUS["crowdsec"]="فعال"
@@ -140,9 +124,6 @@ install_crowdsec() {
     fi
 }
 
-# =============================================
-# تابع اتصال به CrowdSec Console
-# =============================================
 connect_to_console() {
     echo "🔄 اتصال به کنسول CrowdSec..."
     local output=$(sudo cscli console enroll -e "$CROWD_SEC_ENROLLMENT_TOKEN" 2>&1)
@@ -150,12 +131,10 @@ connect_to_console() {
     
     if [ $status -eq 0 ]; then
         SERVICE_STATUS["crowdsec_console"]="✅ متصل"
-        CROWD_SEC_CONSOLE_INFO="
-🎉 **اتصال به کنسول CrowdSec با موفقیت انجام شد**  
+        send_telegram "🎉 **اتصال به کنسول CrowdSec با موفقیت انجام شد**  
    - ایمیل: \`$CROWD_SEC_EMAIL\`  
    - داشبورد: [مشاهده آلرت‌ها](https://app.crowdsec.net/alerts)  
    - وضعیت: اتصال فعال"
-        send_telegram "$CROWD_SEC_CONSOLE_INFO"
         return 0
     else
         SERVICE_STATUS["crowdsec_console"]="❌ خطا"
@@ -166,9 +145,6 @@ connect_to_console() {
     fi
 }
 
-# =============================================
-# تابع پیکربندی امن SFTP
-# =============================================
 configure_sftp() {
     echo "🔄 ایجاد و پیکربندی کاربر SFTP..."
     
@@ -176,7 +152,6 @@ configure_sftp() {
         echo "⚠️ کاربر $SFTP_USER از قبل وجود دارد"
         send_telegram "⚠️ کاربر SFTP از قبل وجود دارد"
     else
-        # ایجاد کاربر با دسترسی محدود
         useradd -m -s /usr/sbin/nologin "$SFTP_USER" && \
         echo "$SFTP_USER:$SFTP_PASSWORD" | chpasswd && \
         mkdir -p "/home/$SFTP_USER/.ssh" && \
@@ -188,7 +163,6 @@ configure_sftp() {
         check_success "ایجاد کاربر SFTP" "sftp_user" || return 1
     fi
 
-    # پیکربندی SSH برای SFTP
     echo "🔒 تنظیمات امنیتی SFTP..."
     if ! grep -q "Subsystem sftp" /etc/ssh/sshd_config; then
         cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
@@ -209,7 +183,6 @@ Match User $SFTP_USER
     X11Forwarding no
 EOL
 
-        # تنظیم مجوزها
         chown root:root /home/$SFTP_USER
         chmod 755 /home/$SFTP_USER
         mkdir -p /home/$SFTP_USER/upload
@@ -222,15 +195,9 @@ EOL
     fi
 }
 
-
-
-# =============================================
-# تابع ریستارت سرویس‌ها و کانتینرها
-# =============================================
 restart_services() {
     echo "🔄 ریستارت سرویس‌ها و کانتینرها..."
     
-    # لیست سرویس‌های سیستمی
     local system_services=(
         "docker"
         "code-server@$NEW_USER.service"
@@ -239,15 +206,13 @@ restart_services() {
         "ssh"
     )
     
-    # لیست کانتینرهای داکر
     local docker_containers=(
         "portainer"
         "nginx-proxy-manager"
     )
     
-    RESTART_REPORT="🔄 **گزارش ریستارت سرویس‌ها:**\n"
+    local RESTART_REPORT="🔄 **گزارش ریستارت سرویس‌ها:**\n"
     
-    # ریستارت سرویس‌های سیستمی
     for service in "${system_services[@]}"; do
         if systemctl is-active --quiet "$service"; then
             systemctl restart "$service"
@@ -257,7 +222,6 @@ restart_services() {
         fi
     done
     
-    # ریستارت کانتینرهای داکر
     for container in "${docker_containers[@]}"; do
         if docker ps -a --format '{{.Names}}' | grep -q "$container"; then
             docker restart "$container"
@@ -270,60 +234,98 @@ restart_services() {
     send_telegram "$RESTART_REPORT"
 }
 
-
-# =============================================
-# تابع گزارش‌دهی CrowdSec بهینه‌شده
-# =============================================
 generate_crowdsec_report() {
-    local report="
-🛡️ **گزارش امنیتی CrowdSec:**  
-📊 **آمار تحلیل لاگ‌ها:**  
-$(cscli metrics | awk '/file:\/var\/log\// {print "   - " $1 ": " $3 " خط"}')
-    
-🔒 **تصمیمات امنیتی اخیر:**  
-$(cscli metrics | awk '/ban/ {print "   - " $1 ": " $4 " مورد"}')
-"
-    echo "$report"
-}
-
-
-
-# =============================================
-# تابع گزارش‌دهی CrowdSec بهینه‌شده
-# =============================================
-generate_crowdsec_report() {
-    local report="
-🛡️ **گزارش امنیتی CrowdSec:**  
-📊 **آمار تحلیل لاگ‌ها:**  
-$(cscli metrics | awk -F'|' '/file:\/var\/log/ {
-    gsub(/^[ \t]+|[ \t]+$/, "", $1);
-    gsub(/^[ \t]+|[ \t]+$/, "", $3);
-    if ($3 != "") print "   - " $1 ": " $3 " خط"
-}')
-    
-🔒 **تصمیمات امنیتی اخیر:**  
-$(cscli metrics | awk -F'|' '/ban/ {
-    gsub(/^[ \t]+|[ \t]+$/, "", $1);
-    gsub(/^[ \t]+|[ \t]+$/, "", $4);
-    if ($4 != "") print "   - " $1 ": " $4 " مورد"
-}')"
+    local report="🛡️ **گزارش امنیتی CrowdSec:**\n"
+    report+="📊 **آمار تحلیل لاگ‌ها:**\n"
+    report+=$(cscli metrics | awk -F'|' '/file:\/var\/log/ {
+        gsub(/^[ \t]+|[ \t]+$/, "", $1);
+        gsub(/^[ \t]+|[ \t]+$/, "", $3);
+        if ($3 != "") print "   - " $1 ": " $3 " خط"
+    }')
+    report+="\n🔒 **تصمیمات امنیتی اخیر:**\n"
+    report+=$(cscli metrics | awk -F'|' '/ban/ {
+        gsub(/^[ \t]+|[ \t]+$/, "", $1);
+        gsub(/^[ \t]+|[ \t]+$/, "", $4);
+        if ($4 != "") print "   - " $1 ": " $4 " مورد"
+    }')
     
     echo "$report"
 }
 
+configure_security() {
+    echo "🔄 اعمال تنظیمات امنیتی..."
+    cat <<EOL > /etc/sysctl.d/99-server-security.conf
+net.ipv4.tcp_syncookies=1
+net.ipv4.conf.all.rp_filter=1
+net.ipv4.conf.default.rp_filter=1
+net.ipv4.icmp_echo_ignore_broadcasts=1
+net.ipv4.conf.all.accept_redirects=0
+net.ipv4.conf.default.accept_redirects=0
+net.ipv4.conf.all.secure_redirects=0
+net.ipv4.conf.default.secure_redirects=0
+net.ipv4.conf.all.accept_source_route=0
+net.ipv4.conf.default.accept_source_route=0
+kernel.yama.ptrace_scope=1
+EOL
+    
+    sysctl -p /etc/sysctl.d/99-server-security.conf
+    check_success "تنظیمات امنیتی اعمال شد"
+}
+
+generate_final_report() {
+    echo "🔄 آماده‌سازی گزارش نهایی..."
+    
+    local SERVER_IP=$(curl -s ifconfig.me || echo "نامشخص")
+    local LOCATION=$(curl -s http://ip-api.com/line/$SERVER_IP?fields=country,city,isp | paste -sd ' ' - || echo "نامشخص")
+    
+    local CROWD_SEC_REPORT=$(generate_crowdsec_report)
+    
+    local SERVICES_INFO=""
+    if [ "${SERVICE_STATUS["portainer"]}" == "فعال" ]; then
+        SERVICES_INFO+="   - [Portainer](http://${SERVER_IP}:${PORTAINER_PORT})\n"
+    fi
+    if [ "${SERVICE_STATUS["nginx-proxy-manager"]}" == "فعال" ]; then
+        SERVICES_INFO+="   - [Nginx Proxy Manager](http://${SERVER_IP}:${NGINX_PROXY_MANAGER_PORT})\n"
+    fi
+    if [ "${SERVICE_STATUS["code-server"]}" == "فعال" ]; then
+        SERVICES_INFO+="   - [Code-Server](http://${SERVER_IP}:${CODE_SERVER_PORT})\n"
+    fi
+    if [ "${SERVICE_STATUS["netdata"]}" == "فعال" ]; then
+        SERVICES_INFO+="   - [Netdata](http://${SERVER_IP}:${NETDATA_PORT})\n"
+    fi
+
+    local FINAL_REPORT="*🚀 گزارش نهایی پیکربندی سرور*\n\n"
+    FINAL_REPORT+="*⏳ زمان:* $(date +"%Y-%m-%d %H:%M:%S")\n\n"
+    FINAL_REPORT+="*🔹 مشخصات سرور:*\n"
+    FINAL_REPORT+="   - *IP:* \`${SERVER_IP}\`\n"
+    FINAL_REPORT+="   - *موقعیت:* ${LOCATION}\n"
+    FINAL_REPORT+="   - *میزبان:* \`$(hostname)\`\n\n"
+    FINAL_REPORT+="*🔹 دسترسی‌های اصلی:*\n"
+    FINAL_REPORT+="   - *کاربر اصلی:* \`${NEW_USER}\`\n"
+    FINAL_REPORT+="   - *SSH Port:* \`${SSH_PORT}\`\n"
+    FINAL_REPORT+="   - *کاربر SFTP:* \`${SFTP_USER}\`\n\n"
+    FINAL_REPORT+="${CROWD_SEC_REPORT}\n\n"
+    FINAL_REPORT+="*🔹 سرویس‌های نصب شده:*\n"
+    FINAL_REPORT+="${SERVICES_INFO:-"   - هیچ سرویس فعالی وجود ندارد"}\n\n"
+    FINAL_REPORT+="*🔹 وضعیت CrowdSec:*\n"
+    FINAL_REPORT+="   - *سرویس:* ${SERVICE_STATUS["crowdsec"]}\n"
+    FINAL_REPORT+="   - *کنسول:* ${SERVICE_STATUS["crowdsec_console"]}\n"
+    FINAL_REPORT+="   - *ایمیل:* \`${CROWD_SEC_EMAIL}\`\n"
+    FINAL_REPORT+="   - [مشاهده آلرت‌ها](https://app.crowdsec.net/alerts)\n\n"
+    FINAL_REPORT+="*🔐 وضعیت امنیتی:*\n"
+    FINAL_REPORT+="   - *فایروال:* ✅ فعال\n"
+    FINAL_REPORT+="   - *آخرین بروزرسانی:* $(date +"%Y-%m-%d %H:%M")"
+    
+    send_telegram "$FINAL_REPORT"
+    echo "✅ گزارش نهایی ارسال شد"
+}
 
 # =============================================
-# شروع فرآیند نصب
+# تابع اصلی
 # =============================================
 main() {
     # گزارش شروع
-    START_REPORT="
-🔥 **شروع فرآیند پیکربندی سرور**  
-🕒 زمان: $(date +"%Y-%m-%d %H:%M:%S")  
-🌍 IP: $(curl -s ifconfig.me || echo "نامشخص")  
-📌 کاربر اصلی: $NEW_USER  
-🔒 پورت SSH: $SSH_PORT  
-"
+    local START_REPORT="🔥 **شروع فرآیند پیکربندی سرور**\n🕒 زمان: $(date +"%Y-%m-%d %H:%M:%S")\n🌍 IP: $(curl -s ifconfig.me || echo "نامشخص")\n📌 کاربر اصلی: $NEW_USER\n🔒 پورت SSH: $SSH_PORT"
     send_telegram "$START_REPORT"
 
     # 1. به‌روزرسانی سیستم
@@ -516,108 +518,7 @@ EOL
     check_success "نصب ابزارهای جانبی"
 
     # 14. تنظیمات امنیتی نهایی
-    echo "🔄 اعمال تنظیمات امنیتی..."
-    cat <<EOL >> /etc/sysctl.conf
-# =============================================
-# =============================================
-
-
-
-
-
-# =============================================
-# تابع گزارش نهایی کاملاً اصلاح شده
-# =============================================
-generate_final_report() {
-    SERVER_IP=$(curl -s ifconfig.me || echo "نامشخص")
-    LOCATION=$(curl -s http://ip-api.com/line/$SERVER_IP?fields=country,city,isp | paste -sd ' ' - | sed 's/"/\\"/g' || echo "نامشخص")
-    
-    # گزارش CrowdSec با فرمت صحیح
-    CROWD_SEC_REPORT="
-🛡️ *گزارش امنیتی CrowdSec:*  
-📊 *آمار تحلیل لاگ‌ها:*  
-$(cscli metrics | awk -F'|' '/file:\/var\/log/ {
-    gsub(/^[ \t]+|[ \t]+$/, "", $1);
-    gsub(/^[ \t]+|[ \t]+$/, "", $3);
-    if ($3 != "") print "   - " $1 ": " $3 " خط"
-}')
-    
-🔒 *تصمیمات امنیتی اخیر:*  
-$(cscli metrics | awk -F'|' '/ban/ {
-    gsub(/^[ \t]+|[ \t]+$/, "", $1);
-    gsub(/^[ \t]+|[ \t]+$/, "", $4);
-    if ($4 != "") print "   - " $1 ": " $4 " مورد"
-}')"
-
-    # ساخت لینک‌های سرویس‌ها با فرمت صحیح Markdown
-    SERVICES_INFO=""
-    if [ "${SERVICE_STATUS["portainer"]}" == "فعال" ]; then
-        SERVICES_INFO+="   - [Portainer](http://${SERVER_IP}:${PORTAINER_PORT})"$'\n'
-    fi
-    if [ "${SERVICE_STATUS["nginx-proxy-manager"]}" == "فعال" ]; then
-        SERVICES_INFO+="   - [Nginx Proxy Manager](http://${SERVER_IP}:${NGINX_PROXY_MANAGER_PORT})"$'\n'
-    fi
-    if [ "${SERVICE_STATUS["code-server"]}" == "فعال" ]; then
-        SERVICES_INFO+="   - [Code-Server](http://${SERVER_IP}:${CODE_SERVER_PORT})"$'\n'
-    fi
-    if [ "${SERVICE_STATUS["netdata"]}" == "فعال" ]; then
-        SERVICES_INFO+="   - [Netdata](http://${SERVER_IP}:${NETDATA_PORT})"$'\n'
-    fi
-
-    # ساخت گزارش نهایی با فرمت صحیح
-    FINAL_REPORT="*🚀 گزارش نهایی پیکربندی سرور*  
-*⏳ زمان:* $(date +"%Y-%m-%d %H:%M:%S")  
-
-*🔹 مشخصات سرور:*  
-   - *IP:* \`${SERVER_IP}\`  
-   - *موقعیت:* ${LOCATION}  
-   - *میزبان:* \`$(hostname)\`  
-
-*🔹 دسترسی‌های اصلی:*  
-   - *کاربر اصلی:* \`${NEW_USER}\`  
-   - *SSH Port:* \`${SSH_PORT}\` (فقط کلید عمومی)  
-   - *کاربر SFTP:* \`${SFTP_USER}\`  
-   - *رمز SFTP:* \`${SFTP_PASSWORD}\`  
-   - *پورت‌های باز:* \`${PORTS_TO_OPEN[*]}\`  
-
-${CROWD_SEC_REPORT}
-
-*🔹 سرویس‌های نصب شده:*  
-${SERVICES_INFO:-"   - هیچ سرویس فعالی وجود ندارد"}
-
-*🔹 وضعیت CrowdSec:*  
-   - *سرویس:* ${SERVICE_STATUS["crowdsec"]}  
-   - *کنسول:* ${SERVICE_STATUS["crowdsec_console"]}  
-   - *ایمیل:* \`${CROWD_SEC_EMAIL}\`  
-   - [مشاهده آلرت‌ها](https://app.crowdsec.net/alerts)  
-
-*🔐 وضعیت امنیتی:*  
-   - *فایروال:* ✅ فعال  
-   - *آخرین بروزرسانی:* $(date +"%Y-%m-%d %H:%M")"
-
-    # ارسال گزارش با استفاده از فرمت صحیح
-    send_telegram "$FINAL_REPORT"
-    echo "✅ گزارش نهایی با موفقیت ارسال شد"
-}
-# =============================================
-# =============================================
-
-
-
-net.ipv4.tcp_syncookies=1
-net.ipv4.conf.all.rp_filter=1
-net.ipv4.conf.default.rp_filter=1
-net.ipv4.icmp_echo_ignore_broadcasts=1
-net.ipv4.conf.all.accept_redirects=0
-net.ipv4.conf.default.accept_redirects=0
-net.ipv4.conf.all.secure_redirects=0
-net.ipv4.conf.default.secure_redirects=0
-net.ipv4.conf.all.accept_source_route=0
-net.ipv4.conf.default.accept_source_route=0
-kernel.yama.ptrace_scope=1
-EOL
-    sysctl -p
-    check_success "تنظیمات امنیتی اعمال شد"
+    configure_security
 
     # 15. ریستارت نهایی سرویس‌ها
     restart_services
