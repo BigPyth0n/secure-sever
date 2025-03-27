@@ -610,15 +610,24 @@ restart_services() {
 # =============================================
 main() {
     # گزارش شروع
+
+
     local START_REPORT="
-🔥 <b>شروع فرآیند پیکربندی سرور</b>  
-⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
-🕒 <b>زمان:</b> $(date +"%Y-%m-%d %H:%M:%S")  
-🌍 <b>IP:</b> <code>$(curl -s ifconfig.me || echo "نامشخص")</code>  
-📌 <b>کاربر اصلی:</b> <code>$NEW_USER</code>  
-🔒 <b>پورت SSH:</b> <code>$SSH_PORT</code>  
-"
+     🔥 <b>شروع فرآیند پیکربندی سرور</b>
+     ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+     🕒 <b>زمان:</b> $(date +"%Y-%m-%d %H:%M:%S")
+     🌍 <b>IP:</b> <code>$(curl -s ifconfig.me || echo "نامشخص")</code>
+     📌 <b>موقعیت:</b> $(curl -s "http://ip-api.com/json/$(curl -s ifconfig.me)?fields=country,city,isp" | jq -r '.country + "، " + .city + " (" + .isp + ")"' || echo "نامشخص")
+️     🌍 <b>میزبان:</b> <code>$(hostname)</code>
+     🔄 <b>کاربر اصلی:</b> <code>$NEW_USER</code>
+     🔒<b>پورت SSH:</b> <code>$SSH_PORT</code>
+     "
+
     send_telegram "$START_REPORT"
+
+
+    
+
 
     # 1. به‌روزرسانی سیستم
     echo "🔄 در حال بروزرسانی سیستم..."
