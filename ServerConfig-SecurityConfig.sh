@@ -240,37 +240,38 @@ restart_services() {
 # تولید گزارش CrowdSec
 #-------------------------------------------------
 generate_crowdsec_report() {
-    local report="*🛡️ گزارش امنیتی CrowdSec*\n"
-    report+="*📊 آمار تحلیل لاگ‌ها:*\n"
+    local report="گزارش امنیتی CrowdSec\n"
+    report+="آمار تحلیل لاگ‌ها:\n"
     
     local log_stats=$(sudo cscli metrics | awk -F'|' '
         /file:\/var\/log/ {
-            gsub(/^[ \t]+|[ \t]+$/, "", $1);
-            gsub(/^[ \t]+|[ \t]+$/, "", $2);
+            gsub(/^[ \t]+|[ \t]+$/, "", $1);  # ستون Source
+            gsub(/^[ \t]+|[ \t]+$/, "", $2);  # ستون Lines read
             if ($2 ~ /^[0-9]+$/) {
-                print "   - " $1 ": " $2 " خط"
+                gsub("-", "\\-", $1);  # اسکیپ کردن - توی اسم فایل‌ها
+                print "  " $1 ": " $2 " خط"
             }
         }
     ')
     
-    [ -n "$log_stats" ] && report+="$log_stats\n" || report+="   - اطلاعاتی یافت نشد\n"
+    [ -n "$log_stats" ] && report+="$log_stats\n" || report+="  اطلاعاتی یافت نشد\n"
     
-    report+="\n*🔒 تصمیمات امنیتی اخیر:*\n"
+    report+="\nتصمیمات امنیتی اخیر:\n"
     local decision_stats=$(sudo cscli metrics | awk -F'|' '
         /ban/ && $1 !~ /Reason/ && $1 !~ /^[-─]*$/ {
-            gsub(/^[ \t]+|[ \t]+$/, "", $1);
-            gsub(/^[ \t]+|[ \t]+$/, "", $4);
+            gsub(/^[ \t]+|[ \t]+$/, "", $1);  # ستون Reason
+            gsub(/^[ \t]+|[ \t]+$/, "", $4);  # ستون Count
             if ($4 ~ /^[0-9]+$/) {
-                print "   - " $1 ": " $4 " مورد"
+                gsub("-", "\\-", $1);  # اسکیپ کردن - توی Reason
+                print "  " $1 ": " $4 " مورد"
             }
         }
     ')
     
-    [ -n "$decision_stats" ] && report+="$decision_stats\n" || report+="   - اطلاعاتی یافت نشد\n"
+    [ -n "$decision_stats" ] && report+="$decision_stats\n" || report+="  اطلاعاتی یافت نشد\n"
     
     echo "$report"
 }
-
 
 
 
@@ -343,7 +344,7 @@ generate_final_report() {
     fi
 
     local FINAL_REPORT="گزارش نهایی پیکربندی سرور\n\n"
-    FINAL_REPORT+="زمان: $(date +"%Y-%m-%d %H:%M:%S")\n\n"
+    FINAL_REPORT+="زمان: $(date +"%Y/%m/%d %H:%M:%S")\n\n"  # تغییر - به /
     FINAL_REPORT+="مشخصات سرور:\n"
     FINAL_REPORT+="  IP: ${SERVER_IP}\n"
     FINAL_REPORT+="  موقعیت: ${LOCATION}\n"
@@ -366,7 +367,7 @@ generate_final_report() {
     FINAL_REPORT+="  مشاهده آلرت‌ها: https://app.crowdsec.net/alerts\n\n"
     FINAL_REPORT+="وضعیت امنیتی:\n"
     FINAL_REPORT+="  فایروال: فعال\n"
-    FINAL_REPORT+="  آخرین بروزرسانی: $(date +"%Y-%m-%d %H:%M")"
+    FINAL_REPORT+="  آخرین بروزرسانی: $(date +"%Y/%m/%d %H:%M")"  # تغییر - به /
     
     send_telegram "$FINAL_REPORT"
     echo "✅ گزارش نهایی ارسال شد"
