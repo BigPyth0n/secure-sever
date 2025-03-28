@@ -38,6 +38,29 @@ declare -A SERVICE_STATUS
 # =============================================
 # توابع کمکی (Helper Functions)
 # =============================================
+# تابع نصب jq
+install_jq() {
+    echo "🔄 بررسی وجود jq در سیستم..."
+    
+    if command -v jq &>/dev/null; then
+        echo "✅ jq از قبل نصب شده است (ورژن: $(jq --version))"
+        return 0
+    fi
+    
+    echo "📦 در حال نصب jq..."
+    apt update && apt install -y jq
+    
+    # بررسی نصب موفق
+    if command -v jq &>/dev/null; then
+        echo "✅ jq با موفقیت نصب شد (ورژن: $(jq --version))"
+        return 0
+    else
+        echo "❌ خطا در نصب jq. ادامه بدون jq..."
+        return 1
+    fi
+}
+
+
 
 # تابع اسکیپ کاراکترهای MarkdownV2
 escape_markdown() {
@@ -188,6 +211,7 @@ check_success() {
 # =============================================
 # توابع اصلی (Main Functions)
 # =============================================
+install_jq || echo "⚠️ ادامه بدون jq..."
 
 # نصب و پیکربندی CrowdSec
 install_crowdsec() {
