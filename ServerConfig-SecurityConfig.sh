@@ -259,47 +259,32 @@ connect_to_console() {
 
 
 # پیکربندی کاربر SFTP
-# تابع ایجاد کاربر و تنظیمات SFTP
-setup_sftp_twofactor() {
-    echo "🔧 شروع تنظیمات SFTP با احراز هویت دو مرحله‌ای"
+# پیکربندی کاربر SFTP (نسخه اصلاح شده فقط برای افزودن تنظیمات رمزنگاری)
+configure_sftp() {
+    echo "🔄 ایجاد و پیکربندی کاربر SFTP..."
     
-    # 1. ایجاد کاربر
     if id "$SFTP_USER" &>/dev/null; then
         echo "⚠️ کاربر $SFTP_USER از قبل وجود دارد"
+        send_telegram "⚠️ کاربر SFTP از قبل وجود دارد"
     else
-        echo "➕ ایجاد کاربر $SFTP_USER"
         useradd -m -s /usr/sbin/nologin "$SFTP_USER" && \
-        echo "$SFTP_USER:$SFTP_PASSWORD" | chpasswd
+        echo "$SFTP_USER:$SFTP_PASSWORD" | chpasswd && \
+        mkdir -p "/home/$SFTP_USER/.ssh" && \
+        echo "$PUBLIC_KEY" > "/home/$SFTP_USER/.ssh/authorized_keys" && \
+        chown -R "$SFTP_USER:$SFTP_USER" "/home/$SFTP_USER/.ssh" && \
+        chmod 700 "/home/$SFTP_USER/.ssh" && \
+        chmod 600 "/home/$SFTP_USER/.ssh/authorized_keys"
+        
+        check_success "ایجاد کاربر SFTP" "sftp_user" || return 1
     fi
-    
-    # 2. تنظیم دایرکتوری .ssh
-    echo "🔑 تنظیم کلید SSH"
-    mkdir -p "/home/$SFTP_USER/.ssh"
-    touch "/home/$SFTP_USER/.ssh/authorized_keys"
-    chmod 700 "/home/$SFTP_USER/.ssh"
-    chmod 600 "/home/$SFTP_USER/.ssh/authorized_keys"
-    chown -R "$SFTP_USER:$SFTP_USER" "/home/$SFTP_USER/.ssh"
 
-    # 3. پیام برای اضافه کردن کلید عمومی
-    echo "📝 لطفا کلید عمومی کاربر را در فایل زیر قرار دهید:"
-    echo "/home/$SFTP_USER/.ssh/authorized_keys"
-    echo "یا از دستور زیر استفاده کنید:"
-    echo "sudo -u $SFTP_USER tee /home/$SFTP_USER/.ssh/authorized_keys <<< 'پست کلید عمومی اینجا'"
-    read -p "آیا کلید عمومی اضافه شده است؟ (y/n) " -n 1 -r
-    echo
-    [[ $REPLY =~ ^[Yy]$ ]] || exit 1
-
-    # 4. تنظیمات SSHd
-    echo "🛠️ پیکربندی /etc/ssh/sshd_config"
-    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
-
-    # اضافه کردن تنظیمات جدید
-    grep -q "SFTP_TWOFACTOR_CONFIG" /etc/ssh/sshd_config || cat >> /etc/ssh/sshd_config <<EOL
-
-# ====== SFTP_TWOFACTOR_CONFIG ======
-Port $SSH_PORT
+    echo "🔒 تنظیمات امنیتی SFTP..."
+    if ! grep -q "Subsystem sftp" /etc/ssh/sshd_config; then
+        cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+        
+        cat <<EOL >> /etc/ssh/sshd_config
+# ======== SFTP Configuration ========
 Subsystem sftp internal-sftp
-
 Match User $SFTP_USER
     ForceCommand internal-sftp -d /upload
     PasswordAuthentication yes
@@ -310,37 +295,43 @@ Match User $SFTP_USER
     AllowAgentForwarding no
     AllowTcpForwarding no
     X11Forwarding no
+    # تنظیمات جدید افزوده شده برای رمزنگاری:
     PubkeyAcceptedAlgorithms +ssh-rsa,ssh-ed25519
     HostKeyAlgorithms +ssh-rsa,ssh-ed25519
 EOL
 
-    # 5. تنظیم مجوزهای chroot
-    echo "📂 تنظیم مجوزهای دایرکتوری"
-    chown root:root "/home/$SFTP_USER"
-    chmod 755 "/home/$SFTP_USER"
-    
-    mkdir -p "$CHROOT_DIR"
-    chown "$SFTP_USER:$SFTP_USER" "$CHROOT_DIR"
-    chmod 755 "$CHROOT_DIR"
-
-    # 6. راه‌اندازی مجدد سرویس
-    echo "🔄 راه‌اندازی مجدد سرویس SSH"
-    systemctl restart ssh
-
-    # 7. بررسی فایروال
-    echo "🔥 بررسی فایروال"
-    if command -v ufw &>/dev/null; then
-        ufw allow $SSH_PORT/tcp
-        ufw reload
+        chown root:root /home/$SFTP_USER
+        chmod 755 /home/$SFTP_USER
+        mkdir -p /home/$SFTP_USER/upload
+        chown $SFTP_USER:$SFTP_USER /home/$SFTP_USER/upload
+        
+        # تست صحت پیکربندی قبل از restart
+        if sshd -t; then
+            systemctl restart sshd
+            check_success "تنظیمات امنیتی SFTP" "sftp_config"
+        else
+            echo "❌ خطا در پیکربندی sshd_config. لطفا فایل را بررسی کنید."
+            cp /etc/ssh/sshd_config.bak /etc/ssh/sshd_config
+            return 1
+        fi
+    else
+        echo "✅ تنظیمات SFTP از قبل اعمال شده است"
+        # فقط اضافه کردن تنظیمات رمزنگاری اگر وجود نداشت
+        if ! grep -q "PubkeyAcceptedAlgorithms" /etc/ssh/sshd_config; then
+            echo "PubkeyAcceptedAlgorithms +ssh-rsa,ssh-ed25519" >> /etc/ssh/sshd_config
+            echo "HostKeyAlgorithms +ssh-rsa,ssh-ed25519" >> /etc/ssh/sshd_config
+            systemctl restart sshd
+        fi
     fi
-
-    echo "✅ تنظیمات با موفقیت انجام شد"
-    echo "🔗 اطلاعات اتصال:"
-    echo "کاربر: $SFTP_USER"
-    echo "پورت: $SSH_PORT"
-    echo "دایرکتوری اصلی: $CHROOT_DIR"
-    echo "نکته: برای اتصال هم کلید خصوصی و هم رمز عبور نیاز است"
 }
+
+
+
+
+
+
+
+
 
 # ریستارت سرویس‌ها و کانتینرها
 restart_services() {
@@ -742,7 +733,7 @@ EOL
     check_success "تنظیمات SSH" "ssh"
 
     # 4. پیکربندی SFTP
-    setup_sftp_twofactor
+    configure_sftp
 
     # 5. نصب Docker
     echo "🔄 نصب Docker و Docker Compose..."
