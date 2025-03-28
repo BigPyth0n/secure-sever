@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-# =============================================
+#==============================================================================================
 # تنظیمات اصلی (Config Variables)
-# =============================================
+#==============================================================================================
 TELEGRAM_BOT_TOKEN="5054947489:AAFSNuI5JP0MhywlkZQIlePqubUpfVFhH9Q"
 TELEGRAM_CHAT_ID="59941862"
 NEW_USER="bigpython"
@@ -16,29 +16,48 @@ NGINX_PROXY_MANAGER_PORT="81"
 CODE_SERVER_PASSWORD="114aa2650b0db5509f36f4fc"
 PUBLIC_KEY="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDdpw/9IFehmdrqt92TwYSAt8tBbt4H9l+yNucOO1z4CCOb/P3X5pH5c7Wspc04n48SDrq/mIYsYvKyym6EDWeKFtocBg+gPjEwOyo07WeSx2zde93C9x0aZLS3paZUxVzqXp1SGzI38u2CluoSeAzk2mKdR3DY1gmSXoPklm1bbzl4VMv1qk1vnvydw3D/RrE2gulfGVfCmgCQ0v3hPqFrs4Bqe125JGSRO7d6MWTI1ph+DN8gARuTvQFN8eFwufiqbMpVZHigIWPyBsb9THTkaCSmIojHZnedSnU5lXikUk+AgUAnfyaf03QwPjrieWjO1edWMBS8ngOGRzWrRssWT8E6GLJ1U0ARPl4XFnUwgYKrMX2mDtggSybn9to0aIxOVM717/EvtdjrwHQ3uGBO+AQ8KoJSumqiboVgA6EjOhk6xrQe3kxBsw/X3EuWD3iW0AJtXo77JIbVIMcPfjUhLNCRy2Ib6MbqNOZ6y4h2PB7ViU8BIqP+p5BgfrqhP0nk2F+YhWU4JbLo6RD9PHMFCCTqG493ameDfPLN+kYn4xSy0BNnBpSgQerHb1O3rrwzjPI7iOyxqO1e4Exi6rcqO6gN7MehfjdeAYCyS3hfILXmWLcEmtQX7RkMlEfAjtWh1Vw/y1GOmc1CJWU45EZxckRxqY37T0OIzR34z0gQJw== bigpyth0n@TradePC
 "
+#==============================================================================================
 
+
+
+#==============================================================================================
 # کاربر مخصوص SFTP
+#==============================================================================================
 SFTP_USER="securftpuser"
 SFTP_PASSWORD="uCkdYMqd5F@GGHYSKy9b"
 CHROOT_DIR="/home/$SFTP_USER/upload"
+#=====================================================================
 
 
-
+#=====================================================================
 # تنظیمات CrowdSec
+#=====================================================================
 CROWD_SEC_EMAIL="kitzone.ir@gmail.com"
 CROWD_SEC_ENROLLMENT_TOKEN="cm8qh5k6b0007iacrx07s382h"
+#=====================================================================
 
+
+#=====================================================================
 # پورت‌های باز و رزرو شده
+#=====================================================================
 PORTS_TO_OPEN=("80" "443" "$SSH_PORT" "$CODE_SERVER_PORT" "$NETDATA_PORT" "$WAZUH_DASHBOARD_PORT" "$PORTAINER_PORT" "$NGINX_PROXY_MANAGER_PORT")
 RESERVED_PORTS=("1020" "1030" "1040" "2060" "3050" "2020" "4040" "3060" "2080")
+#=====================================================================
 
+
+
+#=====================================================================
 # آرایه برای ذخیره وضعیت سرویس‌ها
+#=====================================================================
 declare -A SERVICE_STATUS
+#=====================================================================
 
-# =============================================
+
+
+
+#=====================================================================
 # توابع کمکی (Helper Functions)
-# =============================================
-# تابع نصب jq
+#=====================================================================
 install_jq() {
     echo "🔄 بررسی وجود jq در سیستم..."
     
@@ -59,17 +78,20 @@ install_jq() {
         return 1
     fi
 }
+#=====================================================================
 
 
 
+#==============================================================================================
 # تابع اسکیپ کاراکترهای MarkdownV2
+#==============================================================================================
 escape_markdown() {
     local text="$1"
     # اسکیپ کاراکترهای خاص برای MarkdownV2
     text=$(echo "$text" | sed 's/[][_*()~`>#+=|{}.!]/\\&/g')
     echo "$text"
 }
-
+#==============================================================================================
 
 
 
@@ -78,7 +100,6 @@ escape_markdown() {
 #==============================================================================================
 # تابع ارسال پیام به تلگرام با قابلیت دیباگ پیشرفته
 #==============================================================================================
-# متغیرهای مورد نیاز
 declare -A SERVICE_STATUS=(
     ["sftp_config"]="فعال"
     ["ufw"]="فعال"
@@ -177,6 +198,7 @@ send_telegram() {
     echo "[$timestamp] ✅ تمام بخش‌های پیام با موفقیت ارسال شدند (${#parts[@]} بخش)"
     return 0
 }
+#==============================================================================================
 
 
 
@@ -187,9 +209,9 @@ send_telegram() {
 
 
 
-
-
+#==============================================================================================
 # بررسی موفقیت عملیات و گزارش‌دهی
+#==============================================================================================
 check_success() {
     local action="$1"
     local service="$2"
@@ -207,23 +229,44 @@ check_success() {
         return 1
     fi
 }
+#==============================================================================================
 
-# =============================================
-# توابع اصلی (Main Functions)
-# =============================================
+
+
+
+
+
+
+#==============================================================================================
+# تابع نصب jq
+#==============================================================================================
 install_jq || echo "⚠️ ادامه بدون jq..."
 
+
+#==============================================================================================
 # نصب و پیکربندی CrowdSec
+#==============================================================================================
 install_crowdsec() {
     echo "🔄 نصب CrowdSec با محافظت کامل..."
     
+    # نصب CrowdSec
     curl -s https://packagecloud.io/install/repositories/crowdsec/crowdsec/script.deb.sh | bash
     apt install -y crowdsec || { echo "❌ خطا در نصب CrowdSec"; return 1; }
     
+    # نصب bouncer برای اعمال بلاک‌ها توی فایروال
+    apt install -y crowdsec-firewall-bouncer-nftables || { echo "❌ خطا در نصب bouncer فایروال"; return 1; }
+    
+    # مجموعه سناریوها برای سرویس‌های مختلف
     local collections=(
-        "crowdsecurity/sshd" "crowdsecurity/apache2" "crowdsecurity/nginx"
-        "crowdsecurity/postfix" "crowdsecurity/linux" "crowdsecurity/http-cve"
-        "crowdsecurity/wordpress" "crowdsecurity/mysql"
+        "crowdsecurity/sshd"           # برای SSH و SFTP (پورت 9011)
+        "crowdsecurity/nginx"          # برای Nginx Proxy Manager (پورت 80, 443, 81)
+        "crowdsecurity/mysql"          # برای MySQL (پورت 3306)
+        "crowdsecurity/docker"         # برای Docker
+        "crowdsecurity/linux"          # برای امنیت کلی سیستم
+        "crowdsecurity/http-cve"       # برای حملات شناخته‌شده HTTP (Streamlit, Code-Server, Portainer, Netdata)
+        "crowdsecurity/base-http-scenarios"  # مجموعه پایه HTTP
+        "crowdsecurity/port-scan"      # برای تشخیص اسکن پورت
+        "crowdsecurity/geoip-enrich"   # برای اطلاعات جغرافیایی
     )
     
     for collection in "${collections[@]}"; do
@@ -231,8 +274,10 @@ install_crowdsec() {
         cscli collections install "$collection" || echo "   ⚠️ خطا در نصب $collection"
     done
     
+    # نصب سناریوهای اضافی
     cscli parsers install crowdsecurity/whitelists
-    cscli scenarios install crowdsecurity/http-probing
+    cscli scenarios install crowdsecurity/http-probing  # برای اسکن HTTP
+    cscli scenarios install crowdsecurity/ssh-bf        # برای brute-force روی SSH و SFTP
     
     systemctl enable --now crowdsec
     sleep 5
@@ -245,9 +290,13 @@ install_crowdsec() {
         return 1
     fi
 }
+#==============================================================================================
 
+
+
+#==============================================================================================
 # اتصال به کنسول CrowdSec
-# اتصال به کنسول CrowdSec
+#==============================================================================================
 connect_to_console() {
     echo "🔄 اتصال به کنسول CrowdSec..."
     local output=$(cscli console enroll -e "$CROWD_SEC_ENROLLMENT_TOKEN" 2>&1)
@@ -276,15 +325,15 @@ connect_to_console() {
         return 1
     fi
 }
+#==============================================================================================
 
 
 
 
 
-
-# پیکربندی کاربر SFTP
+#==============================================================================================
 # پیکربندی کاربر SFTP (نسخه اصلاح شده فقط برای افزودن تنظیمات رمزنگاری)
-# پیکربندی کاربر SFTP
+#==============================================================================================
 configure_sftp() {
     echo "🔄 ایجاد و پیکربندی کاربر SFTP..."
     
@@ -366,15 +415,15 @@ EOL
         fi
     fi
 }
+#==============================================================================================
 
 
 
 
 
-
-
-
+#==============================================================================================
 # ریستارت سرویس‌ها و کانتینرها
+#==============================================================================================
 restart_services() {
     echo "🔄 ریستارت سرویس‌ها و کانتینرها..."
 
@@ -424,17 +473,15 @@ restart_services() {
     send_telegram "$RESTART_REPORT"
     echo "✅ گزارش ریستارت سرویس‌ها ارسال شد"
 }
+#==============================================================================================
 
 
 
 
 
-
-
+#==============================================================================================
 # تولید گزارش CrowdSec
-# Improved generate_crowdsec_report() function
-# تولید گزارش CrowdSec
-# تابع تولید گزارش امنیتی
+#==============================================================================================
 generate_crowdsec_report() {
     local report="<b>🛡️ گزارش امنیتی CrowdSec</b>\n"
     report+="<pre>$(date +"%Y-%m-%d %H:%M:%S")</pre>\n"
@@ -472,6 +519,7 @@ generate_crowdsec_report() {
 
     echo -e "$report"
 }
+#==============================================================================================
 
 
 
@@ -479,9 +527,9 @@ generate_crowdsec_report() {
 
 
 
-
-
+#==============================================================================================
 # اعمال تنظیمات امنیتی سیستم
+#==============================================================================================
 configure_security() {
     echo "🔄 اعمال تنظیمات امنیتی..."
     rm -f /etc/sysctl.d/99-server-security.conf
@@ -502,15 +550,14 @@ EOL
     sysctl -p /etc/sysctl.d/99-server-security.conf
     check_success "اعمال تنظیمات امنیتی"
 }
+#==============================================================================================
 
 
 
 
-
-
+#==============================================================================================
 # تولید گزارش نهایی
-# Improved generate_final_report() function
-# تابع تولید گزارش نهایی
+#==============================================================================================
 generate_final_report() {
     echo "🔄 در حال آماده‌سازی گزارش نهایی..."
 
@@ -583,14 +630,14 @@ generate_final_report() {
     send_telegram "$FINAL_REPORT"
     echo "✅ گزارش نهایی با موفقیت ارسال شد"
 }
+#==============================================================================================
 
 
 
 
-
-# =============================================
+#==============================================================================================
 # نصب و بررسی jq (JQ Installer)
-# =============================================
+#==============================================================================================
 install_jq() {
     echo "🔄 بررسی وجود jq در سیستم..."
     
@@ -635,6 +682,7 @@ install_jq() {
         return 1
     fi
 }
+#==============================================================================================
 
 
 
@@ -645,11 +693,9 @@ install_jq() {
 
 
 
-
-# =============================================
-# تابع ریستارت سرویس‌ها
-# =============================================
+#××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××
 # ریستارت سرویس‌ها و کانتینرها
+#××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××
 restart_services() {
     echo "🔄 ریستارت سرویس‌ها و کانتینرها..."
 
@@ -699,18 +745,23 @@ restart_services() {
     send_telegram "$RESTART_REPORT"
     echo "✅ گزارش ریستارت سرویس‌ها ارسال شد"
 }
-
+#××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××××
 
 
 
 
                              
-
-# =============================================
-# تابع اصلی (Main Function)
-# =============================================
+#==============================================================================================
+#=====================================================================
+#==============================================================================================
+                                # تابع اصلی (Main Function)
+#==============================================================================================
+#=====================================================================
+#==============================================================================================
 main() {
-    # گزارش شروع (بدون تغییر)
+    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    # گزارش شروع
+    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     local START_REPORT="
      🔥 <b>شروع فرآیند پیکربندی سرور</b>
      ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
@@ -723,12 +774,16 @@ main() {
      "
     send_telegram "$START_REPORT"
 
-    # 1. به‌روزرسانی سیستم (تغییر جزئی برای مدیریت خطا)
+    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    # 1. به‌روزرسانی سیستم
+    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     echo "🔄 در حال بروزرسانی سیستم..."
     apt update && apt upgrade -y
     check_success "بروزرسانی سیستم انجام شد" || { echo "❌ خطا در بروزرسانی سیستم، ادامه می‌دهیم..."; }
 
-    # 2. نصب jq (اضافه شده)
+    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    # 2. نصب jq (برای پردازش JSON)
+    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     echo "🔄 نصب jq برای پردازش JSON..."
     if ! command -v jq &>/dev/null; then
         apt install -y jq || { echo "❌ خطا در نصب jq، ادامه بدون jq..."; }
@@ -736,7 +791,9 @@ main() {
         echo "✅ jq از قبل نصب شده است (ورژن: $(jq --version))"
     fi
 
-    # 3. تنظیمات کاربر bigpython (تغییر برای اطمینان از اعمال کلید)
+    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    # 3. تنظیمات کاربر bigpython
+    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     echo "🔄 تنظیمات کاربر $NEW_USER..."
     if id "$NEW_USER" &>/dev/null; then
         echo "⚠️ کاربر $NEW_USER از قبل وجود دارد، به‌روزرسانی کلید عمومی..."
@@ -746,6 +803,10 @@ main() {
         usermod -aG sudo "$NEW_USER" && \
         echo "$NEW_USER ALL=(ALL) NOPASSWD: ALL" | tee /etc/sudoers.d/"$NEW_USER" || { echo "❌ خطا در ایجاد کاربر $NEW_USER"; return 1; }
     fi
+
+    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    # 4. اعمال کلید عمومی جدید برای SSH
+    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     mkdir -p "/home/$NEW_USER/.ssh"
     echo "$PUBLIC_KEY" > "/home/$NEW_USER/.ssh/authorized_keys"
     chown -R "$NEW_USER":"$NEW_USER" "/home/$NEW_USER/.ssh"
@@ -753,11 +814,16 @@ main() {
     chmod 600 "/home/$NEW_USER/.ssh/authorized_keys"
     check_success "تنظیمات کاربر $NEW_USER" || { echo "❌ خطا در تنظیمات کاربر $NEW_USER، ادامه می‌دهیم..."; }
 
-    # 4. تنظیمات SSH (تغییر برای تست و مدیریت خطا)
+    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    # 5. تنظیمات SSH
+    #!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     echo "🔄 تنظیمات امنیتی SSH..."
     cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
     cat <<EOL > /etc/ssh/sshd_config
+    
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 # تنظیمات جهانی SSH
+#!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 Port $SSH_PORT
 PermitRootLogin no
 PubkeyAuthentication yes
@@ -773,6 +839,7 @@ AllowTcpForwarding no
 AllowAgentForwarding no
 PermitTunnel no
 EOL
+    # تست صحت پیکربندی و ریستارت سرویس SSH
     if sshd -t; then
         systemctl restart sshd
         check_success "تنظیمات SSH" "ssh"
@@ -783,10 +850,172 @@ EOL
         check_success "بازگردانی تنظیمات SSH" "ssh" || { echo "❌ خطا در بازگردانی SSH، ادامه می‌دهیم..."; }
     fi
 
-    # بقیه مراحل (بدون تغییر نسبت به نسخه تو)
+    # 5. پیکربندی SFTP
     configure_sftp
-    # ... (بقیه کد تو)
-}
 
+    # 6. نصب Docker
+    echo "🔄 نصب Docker و Docker Compose..."
+    if ! command -v docker &>/dev/null; then
+        apt install -y apt-transport-https ca-certificates curl software-properties-common && \
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add - && \
+        add-apt-repository -y "deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable" && \
+        apt update && apt install -y docker-ce docker-ce-cli containerd.io && \
+        systemctl enable --now docker && \
+        usermod -aG docker "$NEW_USER" && \
+        curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose && \
+        chmod +x /usr/local/bin/docker-compose
+        check_success "نصب Docker و Docker Compose" "docker"
+    else
+        echo "✅ Docker از قبل نصب شده است"
+        SERVICE_STATUS["docker"]="فعال"
+    fi
+
+    # 7. نصب Portainer
+    echo "🔄 نصب Portainer..."
+    if ! docker ps -a --format '{{.Names}}' | grep -q 'portainer'; then
+        docker volume create portainer_data && \
+        docker run -d --name portainer -p "$PORTAINER_PORT:9000" \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v portainer_data:/data \
+            --restart unless-stopped \
+            portainer/portainer-ce:latest
+        check_success "نصب Portainer" "portainer"
+    else
+        echo "✅ Portainer از قبل نصب شده است"
+        SERVICE_STATUS["portainer"]="فعال"
+    fi
+
+    # 8. نصب Nginx Proxy Manager
+    echo "🔄 نصب Nginx Proxy Manager..."
+    if ! docker ps -a --format '{{.Names}}' | grep -q 'nginx-proxy-manager'; then
+        mkdir -p /var/docker/nginx-proxy-manager/{data,letsencrypt} && \
+        docker run -d \
+            --name nginx-proxy-manager \
+            -p 80:80 \
+            -p 443:443 \
+            -p "$NGINX_PROXY_MANAGER_PORT:81" \
+            -v /var/docker/nginx-proxy-manager/data:/data \
+            -v /var/docker/nginx-proxy-manager/letsencrypt:/etc/letsencrypt \
+            --restart unless-stopped \
+            jc21/nginx-proxy-manager:latest
+        check_success "نصب Nginx Proxy Manager" "nginx-proxy-manager"
+    else
+        echo "✅ Nginx Proxy Manager از قبل نصب شده است"
+        SERVICE_STATUS["nginx-proxy-manager"]="فعال"
+    fi
+
+    # 9. نصب Netdata
+    echo "🔄 نصب Netdata..."
+    if ! systemctl is-active --quiet netdata; then
+        apt purge -y netdata netdata-core netdata-web netdata-plugins-bash && \
+        rm -rf /etc/netdata /usr/share/netdata /var/lib/netdata && \
+        wget -O /tmp/netdata-kickstart.sh https://my-netdata.io/kickstart.sh && \
+        bash /tmp/netdata-kickstart.sh --stable-channel --disable-telemetry && \
+        tee /etc/netdata/netdata.conf <<EOL
+[global]
+    run as user = netdata
+[web]
+    bind to = 0.0.0.0:$NETDATA_PORT
+    allow connections from = *
+    web files owner = netdata
+    web files group = netdata
+    mode = static-threaded
+EOL
+        chown -R netdata:netdata /usr/share/netdata/web && \
+        chmod -R 0755 /usr/share/netdata/web && \
+        systemctl restart netdata
+        check_success "نصب Netdata" "netdata"
+    else
+        echo "✅ Netdata از قبل نصب شده است"
+        SERVICE_STATUS["netdata"]="فعال"
+    fi
+
+    # 10. نصب CrowdSec
+    install_crowdsec
+
+    # 11. تنظیم فایروال
+    echo "🔄 تنظیم فایروال..."
+    if ! command -v ufw &>/dev/null; then
+        apt install -y ufw
+    fi
+    ufw --force reset
+    ufw default deny incoming
+    ufw default allow outgoing
+    for port in "${PORTS_TO_OPEN[@]}"; do
+        ufw allow "$port/tcp"
+        echo "   🔓 پورت $port/tcp باز شد"
+    done
+    
+    for port in "${RESERVED_PORTS[@]}"; do
+    ufw allow "$port/tcp"
+    echo "   🔓 پورت رزرو $port/tcp باز شد"
+    done
+    
+    ufw --force enable
+    check_success "تنظیم فایروال" "ufw"
+
+    # 12. نصب Code-Server
+    echo "🔄 نصب Code-Server..."
+    if ! command -v code-server &>/dev/null; then
+        curl -fsSL https://code-server.dev/install.sh | sh && \
+        setcap cap_net_bind_service=+ep /usr/lib/code-server/lib/node && \
+        systemctl enable --now code-server@"$NEW_USER" && \
+        mkdir -p "/home/$NEW_USER/.config/code-server" && \
+        cat <<EOL > "/home/$NEW_USER/.config/code-server/config.yaml"
+bind-addr: 0.0.0.0:$CODE_SERVER_PORT
+auth: password
+password: $CODE_SERVER_PASSWORD
+cert: false
+EOL
+        chown -R "$NEW_USER":"$NEW_USER" "/home/$NEW_USER/.config" && \
+        systemctl restart code-server@"$NEW_USER"
+        
+        sleep 5
+        if netstat -tuln | grep -q "$CODE_SERVER_PORT"; then
+            check_success "نصب Code-Server" "code-server"
+        else
+            echo "❌ Code-Server روی پورت $CODE_SERVER_PORT اجرا نشد"
+            SERVICE_STATUS["code-server"]="خطا"
+        fi
+    else
+        echo "✅ Code-Server از قبل نصب شده است"
+        SERVICE_STATUS["code-server"]="فعال"
+    fi
+
+    # 13. نصب ابزارهای جانبی
+    echo "🔄 نصب ابزارهای جانبی..."
+    apt install -y \
+        wget curl net-tools iperf3 \
+        htop glances tmux \
+        rsync vim nano unzip zip \
+        build-essential git lftp \
+        clamav clamav-daemon rkhunter lynis \
+        auditd tcpdump nmap \
+        python3-pip python3-venv python3-dev
+    systemctl enable --now auditd
+    check_success "نصب ابزارهای جانبی"
+
+    # 14. تنظیمات امنیتی سیستم
+    configure_security
+
+    # 15. اتصال به کنسول CrowdSec
+    connect_to_console
+
+    # 16. ریستارت سرویس‌ها
+    restart_services
+
+    # 17. تولید گزارش نهایی
+    generate_final_report
+
+    echo "🎉 پیکربندی سرور با موفقیت تکمیل شد!"
+}
+#=====================================================================
+
+
+
+
+
+#=====================================================================
 # اجرای تابع اصلی
+#=====================================================================
 main "$@"
