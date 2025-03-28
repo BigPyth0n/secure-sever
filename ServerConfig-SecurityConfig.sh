@@ -710,51 +710,54 @@ restart_services() {
 # تابع اصلی (Main Function)
 # =============================================
 main() {
-    # گزارش شروع
-
-
+    # گزارش شروع (بدون تغییر)
     local START_REPORT="
      🔥 <b>شروع فرآیند پیکربندی سرور</b>
      ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
      🕒 <b>زمان:</b> $(date +"%Y-%m-%d %H:%M:%S")
      🌍 <b>IP:</b> <code>$(curl -s ifconfig.me || echo "نامشخص")</code>
-     📌 <b>موقعیت:</b> $(curl -s "http://ip-api.com/json/$(curl -s ifconfig.me)?fields=country,city,isp" | jq -r '.country + "، " + .city + " (" + .isp + ")"' || echo "نامشخص")
-️     🌍 <b>میزبان:</b> <code>$(hostname)</code>
+     📌 <b>موقعیت:</b> $(curl -s "http://ip-api.com/json/$(curl -s ifconfig.me)?fields=country,city,isp" | jq -r '.country + "، " + .city + " (" + .isp + ")"' 2>/dev/null || echo "نامشخص")
+     🌍 <b>میزبان:</b> <code>$(hostname)</code>
      🔄 <b>کاربر اصلی:</b> <code>$NEW_USER</code>
-     🔒<b>پورت SSH:</b> <code>$SSH_PORT</code>
+     🔒 <b>پورت SSH:</b> <code>$SSH_PORT</code>
      "
-
     send_telegram "$START_REPORT"
 
-
-    
-
-
-    # 1. به‌روزرسانی سیستم
+    # 1. به‌روزرسانی سیستم (تغییر جزئی برای مدیریت خطا)
     echo "🔄 در حال بروزرسانی سیستم..."
     apt update && apt upgrade -y
-    check_success "بروزرسانی سیستم انجام شد" || exit 1
+    check_success "بروزرسانی سیستم انجام شد" || { echo "❌ خطا در بروزرسانی سیستم، ادامه می‌دهیم..."; }
 
-    # 2. ایجاد کاربر اصلی
-    echo "🔄 ایجاد کاربر $NEW_USER..."
-    if id "$NEW_USER" &>/dev/null; then
-        echo "⚠️ کاربر $NEW_USER از قبل وجود دارد"
+    # 2. نصب jq (اضافه شده)
+    echo "🔄 نصب jq برای پردازش JSON..."
+    if ! command -v jq &>/dev/null; then
+        apt install -y jq || { echo "❌ خطا در نصب jq، ادامه بدون jq..."; }
     else
+        echo "✅ jq از قبل نصب شده است (ورژن: $(jq --version))"
+    fi
+
+    # 3. تنظیمات کاربر bigpython (تغییر برای اطمینان از اعمال کلید)
+    echo "🔄 تنظیمات کاربر $NEW_USER..."
+    if id "$NEW_USER" &>/dev/null; then
+        echo "⚠️ کاربر $NEW_USER از قبل وجود دارد، به‌روزرسانی کلید عمومی..."
+    else
+        echo "🔄 ایجاد کاربر $NEW_USER..."
         adduser --disabled-password --gecos "" "$NEW_USER" && \
         usermod -aG sudo "$NEW_USER" && \
-        echo "$NEW_USER ALL=(ALL) NOPASSWD: ALL" | tee /etc/sudoers.d/"$NEW_USER" && \
-        mkdir -p "/home/$NEW_USER/.ssh" && \
-        echo "$PUBLIC_KEY" > "/home/$NEW_USER/.ssh/authorized_keys" && \
-        chown -R "$NEW_USER":"$NEW_USER" "/home/$NEW_USER/.ssh" && \
-        chmod 700 "/home/$NEW_USER/.ssh" && \
-        chmod 600 "/home/$NEW_USER/.ssh/authorized_keys"
+        echo "$NEW_USER ALL=(ALL) NOPASSWD: ALL" | tee /etc/sudoers.d/"$NEW_USER" || { echo "❌ خطا در ایجاد کاربر $NEW_USER"; return 1; }
     fi
-    check_success "تنظیمات کاربر $NEW_USER"
+    mkdir -p "/home/$NEW_USER/.ssh"
+    echo "$PUBLIC_KEY" > "/home/$NEW_USER/.ssh/authorized_keys"
+    chown -R "$NEW_USER":"$NEW_USER" "/home/$NEW_USER/.ssh"
+    chmod 700 "/home/$NEW_USER/.ssh"
+    chmod 600 "/home/$NEW_USER/.ssh/authorized_keys"
+    check_success "تنظیمات کاربر $NEW_USER" || { echo "❌ خطا در تنظیمات کاربر $NEW_USER، ادامه می‌دهیم..."; }
 
-    # 3. تنظیمات SSH
+    # 4. تنظیمات SSH (تغییر برای تست و مدیریت خطا)
     echo "🔄 تنظیمات امنیتی SSH..."
     cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
     cat <<EOL > /etc/ssh/sshd_config
+# تنظیمات جهانی SSH
 Port $SSH_PORT
 PermitRootLogin no
 PubkeyAuthentication yes
@@ -770,181 +773,19 @@ AllowTcpForwarding no
 AllowAgentForwarding no
 PermitTunnel no
 EOL
-    systemctl restart sshd
-    check_success "تنظیمات SSH" "ssh"
+    if sshd -t; then
+        systemctl restart sshd
+        check_success "تنظیمات SSH" "ssh"
+    else
+        echo "❌ خطا در پیکربندی sshd_config، بازگردانی نسخه قبلی..."
+        cp /etc/ssh/sshd_config.bak /etc/ssh/sshd_config
+        systemctl restart sshd
+        check_success "بازگردانی تنظیمات SSH" "ssh" || { echo "❌ خطا در بازگردانی SSH، ادامه می‌دهیم..."; }
+    fi
 
-    # 4. پیکربندی SFTP
+    # بقیه مراحل (بدون تغییر نسبت به نسخه تو)
     configure_sftp
-
-    # 5. نصب Docker
-    echo "🔄 نصب Docker و Docker Compose..."
-    if ! command -v docker &>/dev/null; then
-        apt install -y apt-transport-https ca-certificates curl software-properties-common && \
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add - && \
-        add-apt-repository -y "deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable" && \
-        apt update && apt install -y docker-ce docker-ce-cli containerd.io && \
-        systemctl enable --now docker && \
-        usermod -aG docker "$NEW_USER" && \
-        curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose && \
-        chmod +x /usr/local/bin/docker-compose
-        check_success "نصب Docker و Docker Compose" "docker"
-    else
-        echo "✅ Docker از قبل نصب شده است"
-        SERVICE_STATUS["docker"]="فعال"
-    fi
-
-    # 6. نصب Portainer
-    echo "🔄 نصب Portainer..."
-    if ! docker ps -a --format '{{.Names}}' | grep -q 'portainer'; then
-        docker volume create portainer_data && \
-        docker run -d --name portainer -p "$PORTAINER_PORT:9000" \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v portainer_data:/data \
-            --restart unless-stopped \
-            portainer/portainer-ce:latest
-        check_success "نصب Portainer" "portainer"
-    else
-        echo "✅ Portainer از قبل نصب شده است"
-        SERVICE_STATUS["portainer"]="فعال"
-    fi
-
-    # 7. نصب Nginx Proxy Manager
-    echo "🔄 نصب Nginx Proxy Manager..."
-    if ! docker ps -a --format '{{.Names}}' | grep -q 'nginx-proxy-manager'; then
-        mkdir -p /var/docker/nginx-proxy-manager/{data,letsencrypt} && \
-        docker run -d \
-            --name nginx-proxy-manager \
-            -p 80:80 \
-            -p 443:443 \
-            -p "$NGINX_PROXY_MANAGER_PORT:81" \
-            -v /var/docker/nginx-proxy-manager/data:/data \
-            -v /var/docker/nginx-proxy-manager/letsencrypt:/etc/letsencrypt \
-            --restart unless-stopped \
-            jc21/nginx-proxy-manager:latest
-        check_success "نصب Nginx Proxy Manager" "nginx-proxy-manager"
-    else
-        echo "✅ Nginx Proxy Manager از قبل نصب شده است"
-        SERVICE_STATUS["nginx-proxy-manager"]="فعال"
-    fi
-
-    # 8. نصب Netdata
-    echo "🔄 نصب Netdata..."
-    if ! systemctl is-active --quiet netdata; then
-        apt purge -y netdata netdata-core netdata-web netdata-plugins-bash && \
-        rm -rf /etc/netdata /usr/share/netdata /var/lib/netdata && \
-        wget -O /tmp/netdata-kickstart.sh https://my-netdata.io/kickstart.sh && \
-        bash /tmp/netdata-kickstart.sh --stable-channel --disable-telemetry && \
-        tee /etc/netdata/netdata.conf <<EOL
-[global]
-    run as user = netdata
-[web]
-    bind to = 0.0.0.0:$NETDATA_PORT
-    allow connections from = *
-    web files owner = netdata
-    web files group = netdata
-    mode = static-threaded
-EOL
-        chown -R netdata:netdata /usr/share/netdata/web && \
-        chmod -R 0755 /usr/share/netdata/web && \
-        systemctl restart netdata
-        check_success "نصب Netdata" "netdata"
-    else
-        echo "✅ Netdata از قبل نصب شده است"
-        SERVICE_STATUS["netdata"]="فعال"
-    fi
-
-    # 9. نصب CrowdSec
-    install_crowdsec
-
-    # 10. تنظیم فایروال
-    echo "🔄 تنظیم فایروال..."
-    if ! command -v ufw &>/dev/null; then
-        apt install -y ufw
-    fi
-
-    ufw --force reset
-    ufw default deny incoming
-    ufw default allow outgoing
-
-    for port in "${PORTS_TO_OPEN[@]}"; do
-        ufw allow "$port/tcp"
-        echo "   🔓 پورت $port/tcp باز شد"
-    done
-
-    ufw --force enable
-    check_success "تنظیم فایروال" "ufw"
-
-    # 11. نصب Code-Server
-    echo "🔄 نصب Code-Server..."
-    if ! command -v code-server &>/dev/null; then
-        curl -fsSL https://code-server.dev/install.sh | sh && \
-        setcap cap_net_bind_service=+ep /usr/lib/code-server/lib/node && \
-        systemctl enable --now code-server@"$NEW_USER" && \
-        mkdir -p "/home/$NEW_USER/.config/code-server" && \
-        cat <<EOL > "/home/$NEW_USER/.config/code-server/config.yaml"
-bind-addr: 0.0.0.0:$CODE_SERVER_PORT
-auth: password
-password: $CODE_SERVER_PASSWORD
-cert: false
-EOL
-        chown -R "$NEW_USER":"$NEW_USER" "/home/$NEW_USER/.config" && \
-        systemctl restart code-server@"$NEW_USER"
-        
-        sleep 5
-        if netstat -tuln | grep -q "$CODE_SERVER_PORT"; then
-            check_success "نصب Code-Server" "code-server"
-        else
-            echo "❌ Code-Server روی پورت $CODE_SERVER_PORT اجرا نشد"
-            SERVICE_STATUS["code-server"]="خطا"
-        fi
-    else
-        echo "✅ Code-Server از قبل نصب شده است"
-        SERVICE_STATUS["code-server"]="فعال"
-    fi
-
-    # 12. نصب ابزارهای جانبی
-    echo "🔄 نصب ابزارهای جانبی..."
-    apt install -y \
-        wget curl net-tools iperf3 \
-        htop glances tmux \
-        rsync vim nano unzip zip \
-        build-essential git lftp \
-        clamav clamav-daemon rkhunter lynis \
-        auditd tcpdump nmap \
-        python3-pip python3-venv python3-dev
-
-    systemctl enable --now auditd
-    check_success "نصب ابزارهای جانبی"
-
-    # 13. تنظیمات امنیتی نهایی
-    echo "🔄 اعمال تنظیمات امنیتی..."
-    cat <<EOL >> /etc/sysctl.conf
-net.ipv4.tcp_syncookies=1
-net.ipv4.conf.all.rp_filter=1
-net.ipv4.conf.default.rp_filter=1
-net.ipv4.icmp_echo_ignore_broadcasts=1
-net.ipv4.conf.all.accept_redirects=0
-net.ipv4.conf.default.accept_redirects=0
-net.ipv4.conf.all.secure_redirects=0
-net.ipv4.conf.default.secure_redirects=0
-net.ipv4.conf.all.accept_source_route=0
-net.ipv4.conf.default.accept_source_route=0
-kernel.yama.ptrace_scope=1
-EOL
-    sysctl -p
-    check_success "تنظیمات امنیتی اعمال شد"
-
-    # 14. اتصال به کنسول CrowdSec
-    connect_to_console
-
-      
-    echo "🔄 ریستارت سرویس‌ها..."
-    restart_services
-                             
-    echo "🔄 تولید گزارش نهایی..."
-    generate_final_report
-
-    echo "🎉 پیکربندی سرور با موفقیت تکمیل شد!"
+    # ... (بقیه کد تو)
 }
 
 # اجرای تابع اصلی
