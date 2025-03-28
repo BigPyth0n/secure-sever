@@ -100,15 +100,15 @@ generate_security_report() {
     fi
 
     # متریکس خام برای دیباگ
-    local metrics=$(sudo cscli metrics 2>/dev/null || echo "خطا در دریافت متریکس")
+    local metrics=$(sudo cscli metrics --no-color 2>/dev/null || echo "خطا در دریافت متریکس")
     echo "Metrics Raw:\n$metrics" >> "$LOG_FILE"
     metrics=$(echo "$metrics" | sed 's/│/|/g')
 
-    # متریکس: لاگ‌ها
+    # متریکس: لاگ‌ها (اصلاح‌شده برای انعطاف‌پذیری بیشتر)
     local log_metrics=$(echo "$metrics" | awk '
         BEGIN { found=0 }
-        /Source.*Lines read.*Lines parsed.*Lines unparsed/ { found=1; getline; getline; next }
-        found && /file:\/var\/log/ { 
+        /Acquisition Metrics/ { found=1; getline; getline; next }
+        found && /file:/ { 
             split($0, parts, "|");
             gsub(/^[ \t]+|[ \t]+$/, "", parts[1]);
             gsub(/^[ \t]+|[ \t]+$/, "", parts[2]);
@@ -125,7 +125,7 @@ generate_security_report() {
     # متریکس: دلایل مسدودسازی
     local ban_reasons=$(echo "$metrics" | awk '
         BEGIN { found=0 }
-        /Reason.*Origin.*Action.*Count/ { found=1; getline; getline; next }
+        /Local API Decisions/ { found=1; getline; getline; next }
         found && /\|/ { 
             split($0, parts, "|");
             gsub(/^[ \t]+|[ \t]+$/, "", parts[2]);
@@ -143,7 +143,7 @@ generate_security_report() {
     # متریکس: درخواست‌های API
     local api_metrics=$(echo "$metrics" | awk '
         BEGIN { found=0 }
-        /Route.*Method.*Hits/ { found=1; getline; getline; next }
+        /Local API Metrics/ { found=1; getline; getline; next }
         found && /\|/ { 
             split($0, parts, "|");
             gsub(/^[ \t]+|[ \t]+$/, "", parts[2]);
@@ -157,16 +157,22 @@ generate_security_report() {
     ')
     echo "API Metrics Extracted:\n$api_metrics" >> "$LOG_FILE"
 
-    # سناریوهای فعال (با تعداد موارد فعال)
-    local scenarios=$(sudo cscli metrics --no-color 2>/dev/null | awk -F'│' '
-        /Scenario/ { next }
-        /^[[:space:]]*crowdsecurity\// {
-            gsub(/^[ \t]+|[ \t]+$/, "", $1);
-            gsub(/^[ \t]+|[ \t]+$/, "", $2);
-            if ($2 ~ /^[0-9-]+$/) {
-                printf("• **%s**\n  - موارد فعال: %s\n", $1, $2);
+    # سناریوهای فعال (اصلاح‌شده برای انعطاف‌پذیری بیشتر)
+    local scenarios=$(echo "$metrics" | awk '
+        BEGIN { found=0; count=0 }
+        /Scenario Metrics/ { found=1; getline; getline; next }
+        found && /crowdsecurity\// { 
+            split($0, parts, "|");
+            gsub(/^[ \t]+|[ \t]+$/, "", parts[1]);
+            gsub(/^[ \t]+|[ \t]+$/, "", parts[2]);
+            if (parts[2] ~ /^[0-9-]+$/) {
+                printf("• **%s**\n  - موارد فعال: %s\n", parts[1], parts[2]);
+                count++;
+                if (count >= 10) exit;
             }
-        }' | head -n 10)
+        }
+        /Whitelist Metrics/ { found=0 }
+    ')
     echo "Scenarios Extracted:\n$scenarios" >> "$LOG_FILE"
 
     # ساخت گزارش
