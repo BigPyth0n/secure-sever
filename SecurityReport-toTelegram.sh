@@ -6,173 +6,194 @@ TELEGRAM_CHAT_ID="59941862"
 CONSOLE_EMAIL="kitzone.ir@gmail.com"
 LOG_FILE="/var/log/crowdsec_reports.log"
 
-# تابع ارسال به تلگرام
-send_telegram() {
-    local message="$1"
-    # تبدیل کاراکترهای خاص برای Markdown
-    message=$(echo "$message" | sed 's/\*/★/g; s/_/＿/g; s/`/ˋ/g; s/|/∣/g; s/-/－/g')
-    
-    # ارسال به تلگرام
-    curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
-        -d "chat_id=$TELEGRAM_CHAT_ID" \
-        -d "text=$message" \
-        -d "parse_mode=Markdown" >> "$LOG_FILE" 2>&1
-    
-    if [ $? -eq 0 ]; then
-        echo "[$(date +"%Y-%m-%d %H:%M:%S")] ✅ گزارش به تلگرام ارسال شد" | tee -a "$LOG_FILE"
-    else
-        echo "[$(date +"%Y-%m-%d %H:%M:%S")] ❌ خطا در ارسال به تلگرام" | tee -a "$LOG_FILE"
+# توابع
+install_prerequisites() {
+    local missing_tools=()
+    command -v curl &>/dev/null || missing_tools+=("curl")
+    command -v jq &>/dev/null || missing_tools+=("jq")
+    command -v cscli &>/dev/null || missing_tools+=("crowdsec")
+
+    if [ ${#missing_tools[@]} -gt 0 ]; then
+        apt update -y && apt install -y "${missing_tools[@]}"
     fi
 }
 
-# تابع پردازش جدول‌های cscli
-parse_table() {
-    local input="$1"
-    local headers="$2"
-    echo "$input" | awk -v headers="$headers" '
-    BEGIN { 
-        FS = "\\|";
-        split(headers, h, "|");
-    }
-    NR > 2 && !/^\+/ && !/^$/ && !/^---/ {
-        gsub(/^[ \t]+|[ \t]+$/, "");
-        for (i=1; i<=NF; i++) {
-            gsub(/^[ \t]+|[ \t]+$/, "", $i);
-            if ($i != "") {
-                printf "• %s\n", $1;
-                for (j=2; j<=NF; j++) {
-                    if ($j != "" && h[j] != "") {
-                        printf "  - %s: %s\n", h[j], $j;
-                    }
-                }
-                printf "\n";
-                break;
-            }
-        }
-    }'
+send_telegram() {
+    local message="$1"
+    local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+
+    # تبدیل \n به خط جدید واقعی
+    message=$(echo -e "$message")
+
+    # اسکیپ کردن همه کاراکترهای خاص برای Markdown
+    message=$(echo "$message" | sed 's/\*/\\*/g; s/_/\\_/g; s/`/\\`/g; s/|/\\|/g; s/-/\\-/g; s/\[/\\[/g; s/\]/\\]/g; s/(/\\(/g; s/)/\\)/g; s/#/\\#/g; s/+/\\+/g; s/!/\\!/g')
+
+    # ذخیره پیام برای دیباگ
+    echo "[$timestamp] پیام قبل از تقسیم:\n$message" >> "$LOG_FILE"
+    echo "[$timestamp] طول پیام: ${#message}" >> "$LOG_FILE"
+
+    # تقسیم پیام به بخش‌های 4000 کاراکتری (کمی کمتر از 4096 برای احتیاط)
+    local parts=()
+    local max_length=4000
+    while [ -n "$message" ]; do
+        if [ ${#message} -le $max_length ]; then
+            parts+=("$message")
+            break
+        else
+            local part="${message:0:$max_length}"
+            local last_newline=$(echo "$part" | grep -aob '\n' | tail -1 | cut -d: -f1)
+            if [ -n "$last_newline" ] && [ "$last_newline" -gt 0 ]; then
+                part="${message:0:$((last_newline + 1))}"
+            else
+                part="${message:0:$max_length}\n"
+            fi
+            parts+=("$part")
+            message="${message:${#part}}"
+        fi
+    done
+
+    # ارسال هر بخش
+    local part_count=1
+    for part in "${parts[@]}"; do
+        echo "[$timestamp] ارسال بخش $part_count - طول: ${#part}" >> "$LOG_FILE"
+        local response=$(curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
+            -d "chat_id=$TELEGRAM_CHAT_ID" \
+            -d "text=$part" \
+            -d "parse_mode=Markdown" 2>&1)
+
+        if echo "$response" | grep -q '"ok":true'; then
+            echo "[$timestamp] ✅ بخش $part_count ارسال شد" | tee -a "$LOG_FILE"
+        else
+            echo "[$timestamp] ❌ خطا در ارسال بخش $part_count: $response" | tee -a "$LOG_FILE"
+            return 1
+        fi
+        part_count=$((part_count + 1))
+        sleep 1
+    done
 }
 
-# تابع اصلی تولید گزارش
 generate_security_report() {
+    install_prerequisites
+
     # حملات 24 ساعت اخیر
-    local attacks=$(sudo cscli alerts list --since 24h 2>/dev/null)
-    local attacks_report
-    if [ -z "$attacks" ] || echo "$attacks" | grep -q "No active alerts"; then
-        attacks_report="• هیچ حمله‌ای یافت نشد\n"
+    local attacks=$(sudo cscli alerts list --since 24h 2>/dev/null || echo "خطا در دریافت حملات")
+    if echo "$attacks" | grep -q "No active alerts"; then
+        local attacks_report="• هیچ حمله‌ای یافت نشد\n"
     else
-        attacks_report=$(parse_table "$attacks" "|سناریو|IP|زمان|کشور")
+        local attacks_report=$(echo "$attacks" | awk '
+            NR>2 && !/^\+/ {
+                printf("• **سناریو: %s**\n  - IP: %s\n  - زمان: %s\n", $1, $2, $3)
+            }')
     fi
 
     # IPهای مسدود شده
-    local bans=$(sudo cscli decisions list 2>/dev/null)
-    local bans_report
-    if [ -z "$bans" ] || echo "$bans" | grep -q "No active decisions"; then
-        bans_report="• هیچ IP مسدودی یافت نشد\n"
+    local bans=$(sudo cscli decisions list 2>/dev/null || echo "خطا در دریافت IPهای مسدود")
+    if echo "$bans" | grep -q "No active decisions"; then
+        local bans_report="• هیچ IP مسدودی یافت نشد\n"
     else
-        bans_report=$(parse_table "$bans" "|IP|علت|مدت|کشور")
+        local bans_report=$(echo "$bans" | awk '
+            NR>2 && !/^\+/ {
+                printf("• **IP: %s**\n  - علت: %s\n  - مدت: %s\n", $1, $2, $3)
+            }')
     fi
 
-    # متریکس سیستم
-    local metrics=$(sudo cscli metrics 2>/dev/null)
-    
-    # پردازش دلایل مسدودسازی
-    local ban_reasons=$(echo "$metrics" | awk '
-        /Reason.*Origin/ {
-            flag=1; getline; getline;
-            while ($0 !~ /^\+/ && $0 !~ /^$/ && $0 !~ /^---/) {
-                if ($0 ~ /\|/) {
-                    gsub(/^[ \t]+|[ \t]+$/, "");
-                    split($0, parts, "|");
-                    if (parts[1] != "" && parts[4] ~ /[0-9]/) {
-                        printf "• %s\n  - منبع: %s\n  - اقدام: %s\n  - تعداد: %s\n\n", 
-                            parts[1], parts[2], parts[3], parts[4];
-                    }
-                }
-                getline;
-            }
-        }')
+    # متریکس خام برای دیباگ
+    local metrics=$(sudo cscli metrics 2>/dev/null || echo "خطا در دریافت متریکس")
+    echo "Metrics Raw:\n$metrics" >> "$LOG_FILE"
 
-    # پردازش درخواست‌های API
-    local api_metrics=$(echo "$metrics" | awk '
-        /Route.*Method/ {
-            flag=1; getline; getline;
-            while ($0 !~ /^\+/ && $0 !~ /^$/ && $0 !~ /^---/) {
-                if ($0 ~ /\|/) {
-                    gsub(/^[ \t]+|[ \t]+$/, "");
-                    split($0, parts, "|");
-                    if (parts[1] != "" && parts[3] ~ /[0-9]/) {
-                        printf "• %s\n  - روش: %s\n  - تعداد: %s\n\n", 
-                            parts[1], parts[2], parts[3];
-                    }
-                }
-                getline;
-            }
-        }')
+    # تبدیل جداکننده‌های جدول (│ به |)
+    metrics=$(echo "$metrics" | sed 's/│/|/g')
 
-    # پردازش وضعیت لاگ‌ها
+    # متریکس: لاگ‌ها
     local log_metrics=$(echo "$metrics" | awk '
-        /Source.*Lines read/ {
-            flag=1; getline;
-            while ($0 !~ /^\+/ && $0 !~ /^$/ && $0 !~ /^---/) {
-                if ($0 ~ /file:\/var\/log/ && $0 ~ /\|/) {
-                    gsub(/^[ \t]+|[ \t]+$/, "");
-                    split($0, parts, "|");
-                    if (parts[1] != "" && parts[2] ~ /[0-9]/) {
-                        printf "• %s\n  - خوانده‌شده: %s\n  - پردازش‌شده: %s\n  - پردازش‌نشده: %s\n\n", 
-                            parts[1], parts[2], parts[3], parts[4];
-                    }
-                }
-                getline;
+        BEGIN { found=0 }
+        /Source.*Lines read.*Lines parsed.*Lines unparsed/ { found=1; getline; getline; next }
+        found && /file:\/var\/log/ { 
+            split($0, parts, "|");
+            gsub(/^[ \t]+|[ \t]+$/, "", parts[1]);
+            gsub(/^[ \t]+|[ \t]+$/, "", parts[2]);
+            gsub(/^[ \t]+|[ \t]+$/, "", parts[3]);
+            gsub(/^[ \t]+|[ \t]+$/, "", parts[4]);
+            if (parts[2] ~ /^[0-9-]+$/) {
+                printf("• **%s**\n  - خوانده‌شده: %s\n  - پردازش‌شده: %s\n  - پردازش‌نشده: %s\n", parts[1], parts[2], parts[3], parts[4])
             }
-        }')
+        }
+        /Local API Decisions/ { found=0 }
+    ')
+    echo "Log Metrics Extracted:\n$log_metrics" >> "$LOG_FILE"
 
-    # سناریوهای فعال
-    local scenarios=$(sudo cscli scenarios list 2>/dev/null)
-    local scenarios_report
-    if [ -z "$scenarios" ] || echo "$scenarios" | grep -q "No scenarios installed"; then
-        scenarios_report="• هیچ سناریوی فعالی یافت نشد\n"
-    else
-        scenarios_report=$(echo "$scenarios" | awk '
-        BEGIN { count = 0; }
-        NR > 2 && !/^\+/ && !/^$/ && !/^---/ && !/Name/ && count < 10 {
-            gsub(/^[ \t]+|[ \t]+$/, "");
-            if ($0 ~ /\|/) {
-                split($0, parts, "|");
-                gsub(/^[ \t]+|[ \t]+$/, "", parts[1]);
-                gsub(/^[ \t]+|[ \t]+$/, "", parts[2]);
-                if (parts[1] != "" && parts[1] !~ /^-+$/) {
-                    printf "• %s\n  - وضعیت: %s\n\n", parts[1], parts[2];
-                    count++;
-                }
+    # متریکس: دلایل مسدودسازی
+    local ban_reasons=$(echo "$metrics" | awk '
+        BEGIN { found=0 }
+        /Reason.*Origin.*Action.*Count/ { found=1; getline; getline; next }
+        found && /\|/ { 
+            split($0, parts, "|");
+            gsub(/^[ \t]+|[ \t]+$/, "", parts[2]);
+            gsub(/^[ \t]+|[ \t]+$/, "", parts[3]);
+            gsub(/^[ \t]+|[ \t]+$/, "", parts[4]);
+            gsub(/^[ \t]+|[ \t]+$/, "", parts[5]);
+            if (parts[5] ~ /^[0-9]+$/) {
+                printf("• **%s**\n  - منبع: %s\n  - اقدام: %s\n  - تعداد: %s\n", parts[2], parts[3], parts[4], parts[5])
             }
+        }
+        /Local API Metrics/ { found=0 }
+    ')
+    echo "Ban Reasons Extracted:\n$ban_reasons" >> "$LOG_FILE"
+
+    # متریکس: درخواست‌های API
+    local api_metrics=$(echo "$metrics" | awk '
+        BEGIN { found=0 }
+        /Route.*Method.*Hits/ { found=1; getline; getline; next }
+        found && /\|/ { 
+            split($0, parts, "|");
+            gsub(/^[ \t]+|[ \t]+$/, "", parts[2]);
+            gsub(/^[ \t]+|[ \t]+$/, "", parts[3]);
+            gsub(/^[ \t]+|[ \t]+$/, "", parts[4]);
+            if (parts[4] ~ /^[0-9]+$/) {
+                printf("• **%s**\n  - روش: %s\n  - تعداد: %s\n", parts[2], parts[3], parts[4])
+            }
+        }
+        /Local API Machines Metrics/ { found=0 }
+    ')
+    echo "API Metrics Extracted:\n$api_metrics" >> "$LOG_FILE"
+
+    # سناریوهای فعال (محدود به 10 مورد و حذف خطوط جداکننده و هدر)
+    local scenarios=$(sudo cscli scenarios list 2>/dev/null | awk '
+        NR>2 && !/^-+$/ && !/Name/ && !/Status/ && NR<=12 { 
+            printf("• **%s**\n  - وضعیت: %s\n", $1, $2) 
         }')
-    fi
+    echo "Scenarios Extracted:\n$scenarios" >> "$LOG_FILE"
 
-    # ساخت گزارش نهایی
-    local report="🛡️ گزارش امنیتی CrowdSec\n"
-    report+="⏰ زمان: $(date +"%Y-%m-%d %H:%M:%S")\n"
-    report+="⏳ دوره: 24 ساعت اخیر\n"
-    report+="📧 ایمیل: ${CONSOLE_EMAIL}\n"
-    report+="────────────────────\n"
-    report+="🔴 حملات شناسایی‌شده\n${attacks_report}\n"
-    report+="────────────────────\n"
-    report+="🔵 IPهای مسدود‌شده\n${bans_report}\n"
-    report+="────────────────────\n"
-    report+="🚫 دلایل مسدودسازی\n${ban_reasons:-• اطلاعاتی در دسترس نیست}\n"
-    report+="────────────────────\n"
-    report+="🌐 درخواست‌های API\n${api_metrics:-• اطلاعاتی در دسترس نیست}\n"
-    report+="────────────────────\n"
-    report+="📈 وضعیت مانیتورینگ لاگ‌ها\n${log_metrics:-• اطلاعاتی در دسترس نیست}\n"
-    report+="────────────────────\n"
-    report+="🔧 سناریوهای فعال (10 مورد اول)\n${scenarios_report:-• اطلاعاتی در دسترس نیست}\n"
-    report+="────────────────────\n"
+    # ساخت گزارش
+    local report=""
+    report+="**🛡️ گزارش امنیتی CrowdSec**  \n"
+    report+="**⏰ زمان**: $(date +"%Y-%m-%d %H:%M:%S")  \n"
+    report+="**⏳ دوره**: 24 ساعت اخیر  \n"
+    report+="**📧 ایمیل**: \`${CONSOLE_EMAIL}\`  \n"
+    report+="────────────────────  \n"
+    report+="**🔴 حملات شناسایی‌شده**  \n"
+    report+="${attacks_report}\n"
+    report+="────────────────────  \n"
+    report+="**🔵 IPهای مسدود‌شده**  \n"
+    report+="${bans_report}\n"
+    report+="────────────────────  \n"
+    report+="**🚫 دلایل مسدودسازی**  \n"
+    report+="${ban_reasons:-• اطلاعاتی در دسترس نیست}\n"
+    report+="────────────────────  \n"
+    report+="**🌐 درخواست‌های API**  \n"
+    report+="${api_metrics:-• اطلاعاتی در دسترس نیست}\n"
+    report+="────────────────────  \n"
+    report+="**📈 وضعیت مانیتورینگ لاگ‌ها**  \n"
+    report+="${log_metrics:-• اطلاعاتی در دسترس نیست}\n"
+    report+="────────────────────  \n"
+    report+="**🔧 سناریوهای فعال (10 مورد اول)**  \n"
+    report+="${scenarios:-• اطلاعاتی در دسترس نیست}\n"
+    report+="────────────────────  \n"
 
-    echo "$report"
+    send_telegram "$report"
 }
 
 # اجرای اصلی
-echo "Starting security report generation..." | tee -a "$LOG_FILE"
-report=$(generate_security_report)
-echo "$report" >> "$LOG_FILE"
-send_telegram "$report"
-echo "Report generation completed." | tee -a "$LOG_FILE"
+echo "Starting security report generation..."
+generate_security_report
+echo "Report generation completed."
