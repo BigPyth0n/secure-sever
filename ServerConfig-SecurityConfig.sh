@@ -260,6 +260,7 @@ connect_to_console() {
 
 # پیکربندی کاربر SFTP
 # پیکربندی کاربر SFTP (نسخه اصلاح شده فقط برای افزودن تنظیمات رمزنگاری)
+# پیکربندی کاربر SFTP
 configure_sftp() {
     echo "🔄 ایجاد و پیکربندی کاربر SFTP..."
     
@@ -282,9 +283,28 @@ configure_sftp() {
     if ! grep -q "Subsystem sftp" /etc/ssh/sshd_config; then
         cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
         
-        cat <<EOL >> /etc/ssh/sshd_config
-# ======== SFTP Configuration ========
+        # تنظیمات جهانی SSH
+        cat <<EOL > /etc/ssh/sshd_config
+# تنظیمات جهانی
 Subsystem sftp internal-sftp
+Port $SSH_PORT
+PermitRootLogin no
+PubkeyAuthentication yes
+PasswordAuthentication no
+AuthenticationMethods publickey
+AllowUsers $NEW_USER $SFTP_USER
+MaxAuthTries 3
+LoginGraceTime 30
+ClientAliveInterval 300
+ClientAliveCountMax 2
+X11Forwarding no
+AllowTcpForwarding no
+AllowAgentForwarding no
+PermitTunnel no
+PubkeyAcceptedAlgorithms +ssh-rsa,ssh-ed25519
+HostKeyAlgorithms +ssh-rsa,ssh-ed25519
+
+# تنظیمات خاص کاربر SFTP
 Match User $SFTP_USER
     ForceCommand internal-sftp -d /upload
     PasswordAuthentication yes
@@ -295,9 +315,6 @@ Match User $SFTP_USER
     AllowAgentForwarding no
     AllowTcpForwarding no
     X11Forwarding no
-    # تنظیمات جدید افزوده شده برای رمزنگاری:
-    PubkeyAcceptedAlgorithms +ssh-rsa,ssh-ed25519
-    HostKeyAlgorithms +ssh-rsa,ssh-ed25519
 EOL
 
         chown root:root /home/$SFTP_USER
@@ -310,13 +327,14 @@ EOL
             systemctl restart sshd
             check_success "تنظیمات امنیتی SFTP" "sftp_config"
         else
-            echo "❌ خطا در پیکربندی sshd_config. لطفا فایل را بررسی کنید."
+            echo "❌ خطا در پیکربندی sshd_config. لطفاً فایل را بررسی کنید."
+            send_telegram "❌ خطا در پیکربندی sshd_config"
             cp /etc/ssh/sshd_config.bak /etc/ssh/sshd_config
             return 1
         fi
     else
         echo "✅ تنظیمات SFTP از قبل اعمال شده است"
-        # فقط اضافه کردن تنظیمات رمزنگاری اگر وجود نداشت
+        # فقط اضافه کردن تنظیمات رمزنگاری اگه وجود نداشت
         if ! grep -q "PubkeyAcceptedAlgorithms" /etc/ssh/sshd_config; then
             echo "PubkeyAcceptedAlgorithms +ssh-rsa,ssh-ed25519" >> /etc/ssh/sshd_config
             echo "HostKeyAlgorithms +ssh-rsa,ssh-ed25519" >> /etc/ssh/sshd_config
@@ -324,7 +342,6 @@ EOL
         fi
     fi
 }
-
 
 
 
