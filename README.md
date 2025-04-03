@@ -110,6 +110,9 @@ crontab -e
 
 ### اجرا هر 10 روز یک بار ساعت 6 صبح
 
+### اگه می‌خوای مطمئن شی اسکریپت درست کار می‌کنه، قبل از اینکه به cron وابسته باشی، خودت اجراش کن:
+/home/bigpython/backup_kitzone3.sh
+
 ```
 crontab -e
 0 6 */10 * * /home/bigpython/backup_kitzone3.sh
