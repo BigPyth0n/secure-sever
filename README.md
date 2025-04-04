@@ -85,37 +85,45 @@ sudo /usr/local/bin/SecurityReport-toTelegram.sh
 sudo wget https://raw.githubusercontent.com/BigPyth0n/secure-sever/refs/heads/main/backup_kitzone3.sh -O /usr/local/bin/backup_kitzone3.sh && sudo chmod +x /usr/local/bin/backup_kitzone3.sh && /usr/local/bin/backup_kitzone3.sh
 ```
 
+
+
+# اضافه کردن کرون به لیست کرون های کاربر رووت
+```
+(sudo crontab -l 2>/dev/null; echo "0 0 * * * /home/bigpython/backup_kitzone3.sh") | sudo crontab -
+```
+
+
 ## نکات
-### پیش‌نیاز: مطمئن شو rclone نصب و تنظیم شده باشه (با rclone config).
-### فضا: اسکریپت چک می‌کنه که حداقل ۲ گیگابایت فضای خالی باشه.
-### خروجی: فایل لاگ (backup_log_YYYY-MM-DD.txt) همه جزئیات رو نگه می‌داره.
+#### پیش‌نیاز: مطمئن شو rclone نصب و تنظیم شده باشه (با rclone config).
+#### فضا: اسکریپت چک می‌کنه که حداقل ۲ گیگابایت فضای خالی باشه.
+#### خروجی: فایل لاگ (backup_log_YYYY-MM-DD.txt) همه جزئیات رو نگه می‌داره.
 
-### پیشنهادات
-## اجرای دوره‌ای: می‌تونی این اسکریپت رو با cron تنظیم کنی که مثلاً هر روز یا هفته اجرا بشه:
+### تنظیم برای کاربر bigpyth0n
+#### اجرای دوره‌ای: می‌تونی این اسکریپت رو با cron تنظیم کنی که مثلاً هر روز یا هفته اجرا بشه:
 
 
-### اجرا هر روز ساعت 12 بامداد
+#### اجرا هر روز ساعت 12 بامداد
 
 ```
 crontab -e
 0 0 * * * /home/bigpython/backup_kitzone3.sh
 ```
 
-### اجرا هر هفته یک‌شنبه ساعت 3 صبح
+#### اجرا هر هفته یک‌شنبه ساعت 3 صبح
 
 ```
 crontab -e
 0 3 * * 0 /home/bigpython/backup_kitzone3.sh
 ```
 
-### اجرا هر 10 روز یک بار ساعت 6 صبح
+#### اجرا هر 10 روز یک بار ساعت 6 صبح
 
 
 ```
 crontab -e
 0 6 */10 * * /home/bigpython/backup_kitzone3.sh
 ```
-### اگه می‌خوای مطمئن شی اسکریپت درست کار می‌کنه، قبل از اینکه به cron وابسته باشی، خودت اجراش کن:
+## اگه می‌خوای مطمئن شی اسکریپت درست کار می‌کنه، قبل از اینکه به cron وابسته باشی، خودت اجراش کن:
 /home/bigpython/backup_kitzone3.sh
 
 
