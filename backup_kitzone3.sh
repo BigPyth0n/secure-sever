@@ -5,7 +5,7 @@
 # نویسنده: بهروز
 
 # ================== متغیرها ==================
-SOURCE_DIR="KitZone3"
+SOURCE_DIR="/home/bigpython/KitZone3"
 DATE=$(date +%Y-%m-%d)
 ARCHIVE_NAME="KitZone3-$DATE.tar.gz"
 TEMP_EXTRACT="/tmp/test_extract"
