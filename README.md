@@ -101,7 +101,18 @@ bigpython@KitZone-Server:~$ rclone config reconnect gdrive:
 Already have a token - refresh?
 y) Yes (default)
 n) No
+y/n> y
+Use auto config?
+ * Say Y if not sure
+ * Say N if you are working on a remote or headless machine
+y) Yes (default)
+n) No
 y/n> n
+Please go to the following link: https://accounts.google.com/o/oauth2/auth?access_type=offline&client_id=630562858958-8bohdelikmdso7guhgimc2la6vlqukco.apps.googleusercontent.com&redirect_uri=urn%3Aietf%3Awg%3Aoauth%3A2.0%3Aoob&response_type=code&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive&state=*************
+Log in and authorize rclone for access
+Enter verification code>
+
+
 ```
 #### فضا: اسکریپت چک می‌کنه که حداقل ۲ گیگابایت فضای خالی باشه.
 #### خروجی: فایل لاگ (backup_log_YYYY-MM-DD.txt) همه جزئیات رو نگه می‌داره.
