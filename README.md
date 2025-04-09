@@ -95,6 +95,14 @@ sudo wget https://raw.githubusercontent.com/BigPyth0n/secure-sever/refs/heads/ma
 
 ## نکات
 #### پیش‌نیاز: مطمئن شو rclone نصب و تنظیم شده باشه (با rclone config).
+# برای تمدید توکن فقط کافی هست این دستورات رو بزنیم تا در سرور مجازی بدون مرورگر لینک بهمون بده
+```
+bigpython@KitZone-Server:~$ rclone config reconnect gdrive:
+Already have a token - refresh?
+y) Yes (default)
+n) No
+y/n> n
+```
 #### فضا: اسکریپت چک می‌کنه که حداقل ۲ گیگابایت فضای خالی باشه.
 #### خروجی: فایل لاگ (backup_log_YYYY-MM-DD.txt) همه جزئیات رو نگه می‌داره.
 
