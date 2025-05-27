@@ -151,10 +151,7 @@ crontab -e
 
 
 
-```
-```
-```
-```
+# ===================================================================================
 
 #### برای آپدیت و بروزرسانی اوبنتو 22 و تنظیم نام دامنه در فایل هاست
 
@@ -162,4 +159,6 @@ crontab -e
 ```
 sudo su - root -c "wget https://raw.githubusercontent.com/BigPyth0n/updateubuntu22/refs/heads/main/main.sh -O /tmp/updateubuntu22.sh && chmod +x /tmp/updateubuntu22.sh"
 ```
+```
+sudo su - root -c "echo '127.0.0.1 nxl0tqja.vm' >> /etc/hosts && wget https://raw.githubusercontent.com/BigPyth0n/updateubuntu22/refs/heads/main/main.sh -O /tmp/updateubuntu22.sh && chmod +x /tmp/updateubuntu22.sh && sed -i 's/apt install/apt install -y/g' /tmp/updateubuntu22.sh && /tmp/updateubuntu22.sh"```
 
