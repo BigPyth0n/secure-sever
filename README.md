@@ -157,8 +157,8 @@ crontab -e
 
 
 ```
-sudo su - root -c "wget https://raw.githubusercontent.com/BigPyth0n/updateubuntu22/refs/heads/main/main.sh -O /tmp/updateubuntu22.sh && chmod +x /tmp/updateubuntu22.sh"
+sudo su - root -c "echo '127.0.0.1 $(hostname)' >> /etc/hosts && wget -q https://raw.githubusercontent.com/BigPyth0n/updateUbuntu22/refs/heads/main/main.sh -O /tmp/updateUbuntu22.sh && chmod +x /tmp/updateUbuntu22.sh && (grep -q 'apt install' /tmp/updateUbuntu22.sh && sed -i 's/apt install/apt install -y/g' /tmp/updateUbuntu22.sh || true) && (grep -q 'apt upgrade' /tmp/updateUbuntu22.sh && sed -i 's/apt upgrade -y --force-confdef --force-confold/apt upgrade -y/g' /tmp/updateUbuntu22.sh || true) && (grep -q 'apt upgrade' /tmp/updateUbuntu22.sh && sed -i 's/apt upgrade/apt upgrade -y/g' /tmp/updateUbuntu22.sh || true) && /tmp/updateUbuntu22.sh"
 ```
-```
-sudo su - root -c "echo '127.0.0.1 nxl0tqja.vm' >> /etc/hosts && wget https://raw.githubusercontent.com/BigPyth0n/updateubuntu22/refs/heads/main/main.sh -O /tmp/updateubuntu22.sh && chmod +x /tmp/updateubuntu22.sh && sed -i 's/apt install/apt install -y/g' /tmp/updateubuntu22.sh && /tmp/updateubuntu22.sh"```
+
+
 
