@@ -142,7 +142,24 @@ crontab -e
 crontab -e
 0 6 */10 * * /home/bigpython/backup_kitzone3.sh
 ```
-## اگه می‌خوای مطمئن شی اسکریپت درست کار می‌کنه، قبل از اینکه به cron وابسته باشی، خودت اجراش کن:
-/home/bigpython/backup_kitzone3.sh
 
+
+
+
+
+
+
+
+
+```
+```
+```
+```
+
+#### برای آپدیت و بروزرسانی اوبنتو 22 و تنظیم نام دامنه در فایل هاست
+
+
+```
+sudo su - root -c "wget https://raw.githubusercontent.com/BigPyth0n/updateubuntu22/refs/heads/main/main.sh -O /tmp/updateubuntu22.sh && chmod +x /tmp/updateubuntu22.sh"
+```
 
